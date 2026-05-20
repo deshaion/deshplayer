@@ -6,7 +6,7 @@ import 'layouts/mobile/mobile_layout.dart';
 import 'layouts/desktop/desktop_layout.dart';
 
 class DeshPlayerApp extends StatefulWidget {
-  const DeshPlayerApp({Key? key}) : super(key: key);
+  const DeshPlayerApp({super.key});
 
   @override
   State<DeshPlayerApp> createState() => _DeshPlayerAppState();

@@ -6,7 +6,7 @@ import 'desktop_control_panel.dart';
 class DesktopLayout extends StatefulWidget {
   final List<Playlist> playlists;
 
-  const DesktopLayout({Key? key, required this.playlists}) : super(key: key);
+  const DesktopLayout({super.key, required this.playlists});
 
   @override
   State<DesktopLayout> createState() => _DesktopLayoutState();
@@ -83,7 +83,7 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                 // Left Sidebar (Playlists)
                 Container(
                   width: 250,
-                  color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.3),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

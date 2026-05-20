@@ -6,7 +6,7 @@ import 'mobile_control_panel.dart';
 class MobileLayout extends StatefulWidget {
   final List<Playlist> playlists;
 
-  const MobileLayout({Key? key, required this.playlists}) : super(key: key);
+  const MobileLayout({super.key, required this.playlists});
 
   @override
   State<MobileLayout> createState() => _MobileLayoutState();

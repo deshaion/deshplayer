@@ -9,13 +9,13 @@ class DesktopControlPanel extends StatelessWidget {
   final VoidCallback onPrev;
 
   const DesktopControlPanel({
-    Key? key,
+    super.key,
     required this.currentTrack,
     required this.isPlaying,
     required this.onPlayPause,
     required this.onNext,
     required this.onPrev,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

@@ -10,13 +10,13 @@ class MobileControlPanel extends StatelessWidget {
   final VoidCallback onPrev;
 
   const MobileControlPanel({
-    Key? key,
+    super.key,
     required this.currentTrack,
     required this.isPlaying,
     required this.onPlayPause,
     required this.onNext,
     required this.onPrev,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

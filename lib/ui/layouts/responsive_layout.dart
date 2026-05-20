@@ -5,10 +5,10 @@ class ResponsiveLayout extends StatelessWidget {
   final Widget desktopLayout;
 
   const ResponsiveLayout({
-    Key? key,
+    super.key,
     required this.mobileLayout,
     required this.desktopLayout,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
