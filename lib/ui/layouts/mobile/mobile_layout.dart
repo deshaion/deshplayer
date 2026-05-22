@@ -223,7 +223,7 @@ class _MobileLayoutState extends State<MobileLayout> {
                               ? Icon(Icons.volume_up, color: Theme.of(context).colorScheme.primary)
                               : Text('${index + 1}', style: const TextStyle(color: Colors.grey)),
                           title: Text(
-                            track.title ?? 'Unknown',
+                            track.title != null && track.title!.isNotEmpty ? track.title! : track.cloudPath.split('/').last.split('.').first,
                             style: TextStyle(
                               fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                               color: isSelected ? Theme.of(context).colorScheme.primary : null,

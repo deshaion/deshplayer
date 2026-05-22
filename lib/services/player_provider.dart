@@ -171,11 +171,6 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> playPrevious() async {
     if (_currentPlaylist == null || _currentTrack == null) return;
-    // If we are more than 3 seconds in, just restart track
-    if (_position.inSeconds > 3) {
-      await seek(Duration.zero);
-      return;
-    }
 
     final ids = _currentPlaylist!.trackIds;
     final index = ids.indexOf(_currentTrack!.id);

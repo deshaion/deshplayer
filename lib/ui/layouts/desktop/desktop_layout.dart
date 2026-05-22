@@ -207,7 +207,7 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                         ? Icon(Icons.volume_up, color: Theme.of(context).colorScheme.primary)
                                         : SizedBox(width: 24, child: Center(child: Text('${index + 1}', style: const TextStyle(color: Colors.grey)))),
                                     title: Text(
-                                      track.title ?? 'Unknown Title',
+                                      track.title != null && track.title!.isNotEmpty ? track.title! : track.cloudPath.split('/').last.split('.').first,
                                       style: TextStyle(
                                         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                                         color: isSelected ? Theme.of(context).colorScheme.primary : null,
