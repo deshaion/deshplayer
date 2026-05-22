@@ -5,6 +5,8 @@ import '../../../services/player_provider.dart';
 import '../../pages/manage_playlists_page.dart';
 import '../../components/playlist_dialogs.dart';
 import 'desktop_control_panel.dart';
+import '../../pages/settings_page.dart';
+import '../../pages/import/cloud_import_page.dart';
 
 class DesktopLayout extends StatefulWidget {
   final List<Playlist> playlists;
@@ -104,7 +106,9 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                         contentPadding: const EdgeInsets.symmetric(horizontal: 24.0),
                         leading: const Icon(Icons.settings),
                         title: const Text('Settings'),
-                        onTap: () {},
+                        onTap: () {
+                           Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsPage()));
+                        },
                       ),
                       const SizedBox(height: 16),
                       Padding(
@@ -185,9 +189,28 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                           children: [
                             Padding(
                               padding: const EdgeInsets.all(32.0),
-                              child: Text(
-                                selectedPlaylist.name,
-                                style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.bold),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      selectedPlaylist.name,
+                                      style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  ElevatedButton.icon(
+                                    onPressed: () {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (context) => CloudImportPage(playlist: selectedPlaylist),
+                                        ),
+                                      ).then((_) {
+                                         setState((){});
+                                      });
+                                    },
+                                    icon: const Icon(Icons.cloud_download),
+                                    label: const Text('Import Cloud Media'),
+                                  )
+                                ],
                               ),
                             ),
                             const Divider(height: 1),
