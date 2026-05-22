@@ -101,6 +101,17 @@ class _CloudImportPageState extends State<CloudImportPage> {
     final storageService = HiveStorageService();
     // Assuming HiveStorageService has already been initialized, we don't call init here
 
+    final p = storageService.getPlaylist(widget.playlist.id);
+    final Set<String> existingCloudPaths = {};
+    if (p != null) {
+      for (final tId in p.trackIds) {
+        final track = storageService.getTrack(tId);
+        if (track != null) {
+          existingCloudPaths.add(track.cloudPath);
+        }
+      }
+    }
+
     while(dirsToProcess.isNotEmpty) {
        final currentDir = dirsToProcess.removeAt(0);
 
@@ -118,7 +129,7 @@ class _CloudImportPageState extends State<CloudImportPage> {
              if (n.isDir) {
                 dirsToProcess.add(n.path);
              } else {
-                await _importSingleFile(n, storageService);
+                await _importSingleFile(n, storageService, existingCloudPaths);
              }
            }
            if (nodes.length < limit) {
@@ -131,7 +142,7 @@ class _CloudImportPageState extends State<CloudImportPage> {
     }
   }
 
-  Future<void> _importSingleFile(CloudNode node, [HiveStorageService? storageService]) async {
+  Future<void> _importSingleFile(CloudNode node, [HiveStorageService? storageService, Set<String>? existingCloudPaths]) async {
     if (_selectedProvider == null) return;
 
     // Check if it's audio
@@ -147,16 +158,17 @@ class _CloudImportPageState extends State<CloudImportPage> {
     final p = storage.getPlaylist(widget.playlist.id);
     if (p == null) return;
 
-    // Get current tracks once and put them in a Set for fast lookup
-    final Set<String> existingCloudPaths = {};
-    for (final tId in p.trackIds) {
-      final track = storage.getTrack(tId);
-      if (track != null) {
-        existingCloudPaths.add(track.cloudPath);
+    final pathsToCheck = existingCloudPaths ?? <String>{};
+    if (existingCloudPaths == null) {
+      for (final tId in p.trackIds) {
+        final track = storage.getTrack(tId);
+        if (track != null) {
+          pathsToCheck.add(track.cloudPath);
+        }
       }
     }
 
-    if (existingCloudPaths.contains(fullCloudPath)) return; // skip duplicate
+    if (pathsToCheck.contains(fullCloudPath)) return; // skip duplicate
 
     final newTrack = Track(
        id: DateTime.now().millisecondsSinceEpoch.toString() + node.name, // unique enough
@@ -168,6 +180,7 @@ class _CloudImportPageState extends State<CloudImportPage> {
 
     await storage.saveTrack(newTrack);
     p.trackIds.add(newTrack.id);
+    pathsToCheck.add(fullCloudPath);
     await storage.savePlaylist(p);
   }
 
