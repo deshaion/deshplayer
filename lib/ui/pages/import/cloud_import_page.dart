@@ -147,16 +147,16 @@ class _CloudImportPageState extends State<CloudImportPage> {
     final p = storage.getPlaylist(widget.playlist.id);
     if (p == null) return;
 
-    bool exists = false;
+    // Get current tracks once and put them in a Set for fast lookup
+    final Set<String> existingCloudPaths = {};
     for (final tId in p.trackIds) {
-       final track = storage.getTrack(tId);
-       if (track != null && track.cloudPath == fullCloudPath) {
-          exists = true;
-          break;
-       }
+      final track = storage.getTrack(tId);
+      if (track != null) {
+        existingCloudPaths.add(track.cloudPath);
+      }
     }
 
-    if (exists) return; // skip duplicate
+    if (existingCloudPaths.contains(fullCloudPath)) return; // skip duplicate
 
     final newTrack = Track(
        id: DateTime.now().millisecondsSinceEpoch.toString() + node.name, // unique enough
