@@ -5,6 +5,8 @@ import '../../../services/player_provider.dart';
 import '../../pages/manage_playlists_page.dart';
 import '../../components/playlist_dialogs.dart';
 import 'mobile_control_panel.dart';
+import '../../pages/settings_page.dart';
+import '../../pages/import/cloud_import_page.dart';
 
 class MobileLayout extends StatefulWidget {
   final List<Playlist> playlists;
@@ -95,7 +97,9 @@ class _MobileLayoutState extends State<MobileLayout> {
             ListTile(
               leading: const Icon(Icons.settings),
               title: const Text('Settings'),
-              onTap: () {},
+              onTap: () {
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsPage()));
+              },
             ),
             const SizedBox(height: 16),
             Padding(
@@ -198,10 +202,26 @@ class _MobileLayoutState extends State<MobileLayout> {
                   children: [
                     const Icon(Icons.list),
                     const SizedBox(width: 8),
-                    Text(
-                      selectedPlaylist.name,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                    Expanded(
+                      child: Text(
+                        selectedPlaylist.name,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                      ),
                     ),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => CloudImportPage(playlist: selectedPlaylist),
+                          ),
+                        ).then((_) {
+                           // Trigger rebuild to show new tracks
+                           setState((){});
+                        });
+                      },
+                      icon: const Icon(Icons.cloud_download, size: 16),
+                      label: const Text('Import'),
+                    )
                   ],
                 ),
               ),
