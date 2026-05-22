@@ -2,18 +2,28 @@ import 'package:flutter/material.dart';
 import '../../../models/playlist.dart';
 import '../../../models/track.dart';
 import 'mobile_control_panel.dart';
+import '../../components/playlist_dialogs.dart';
+import '../../pages/manage_playlists_page.dart';
 
 class MobileLayout extends StatefulWidget {
   final List<Playlist> playlists;
+  final void Function(String name) onAddPlaylist;
+  final void Function(String id, String newName) onRenamePlaylist;
+  final void Function(String id) onDeletePlaylist;
 
-  const MobileLayout({super.key, required this.playlists});
+  const MobileLayout({
+    super.key,
+    required this.playlists,
+    required this.onAddPlaylist,
+    required this.onRenamePlaylist,
+    required this.onDeletePlaylist,
+  });
 
   @override
   State<MobileLayout> createState() => _MobileLayoutState();
 }
 
 class _MobileLayoutState extends State<MobileLayout> {
-  late PageController _pageController;
   Playlist? _selectedPlaylist;
   Track? _currentTrack;
   bool _isPlaying = false;
@@ -21,19 +31,12 @@ class _MobileLayoutState extends State<MobileLayout> {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(initialPage: 1); // Start on main view
     if (widget.playlists.isNotEmpty) {
       _selectedPlaylist = widget.playlists.first;
       if (_selectedPlaylist!.tracks.isNotEmpty) {
         _currentTrack = _selectedPlaylist!.tracks.first;
       }
     }
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
   }
 
   void _playTrack(Track track) {
@@ -78,55 +81,172 @@ class _MobileLayoutState extends State<MobileLayout> {
         _isPlaying = false;
       }
     });
-    // Swipe back to Main View
-    _pageController.animateToPage(1, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+    // Close Drawer
+    Navigator.of(context).pop();
+  }
+
+  void _showPlaylistMenu(BuildContext context, Offset position, Playlist playlist) async {
+    final value = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
+      items: [
+        const PopupMenuItem(
+          value: 'rename',
+          child: Text('Rename'),
+        ),
+        const PopupMenuItem(
+          value: 'delete',
+          child: Text('Delete'),
+        ),
+      ],
+    );
+
+    if (!context.mounted) return;
+
+    if (value == 'rename') {
+      final newName = await showRenamePlaylistDialog(context, playlist.name);
+      if (newName != null && newName.isNotEmpty && newName != playlist.name) {
+        widget.onRenamePlaylist(playlist.id, newName);
+      }
+    } else if (value == 'delete') {
+      final confirm = await showDeletePlaylistDialog(context, playlist.name);
+      if (confirm) {
+        widget.onDeletePlaylist(playlist.id);
+        if (_selectedPlaylist?.id == playlist.id) {
+          setState(() {
+            _selectedPlaylist = null;
+            _currentTrack = null;
+            _isPlaying = false;
+          });
+        }
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return PageView(
-      controller: _pageController,
-      children: [
-        _buildPlaylistsView(),
-        _buildMainView(),
-      ],
-    );
-  }
-
-  Widget _buildPlaylistsView() {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Playlists'),
-        elevation: 0,
-      ),
-      body: ListView.builder(
-        itemCount: widget.playlists.length,
-        itemBuilder: (context, index) {
-          final playlist = widget.playlists[index];
-          return ListTile(
-            leading: Container(
-              width: 48,
-              height: 48,
+      drawer: Drawer(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            DrawerHeader(
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(8),
+                color: Theme.of(context).colorScheme.surfaceContainerHighest.withAlpha(76),
               ),
-              child: const Icon(Icons.queue_music),
+              child: const Text(
+                'DeshPlayer',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
             ),
-            title: Text(playlist.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text('${playlist.tracks.length} tracks'),
-            onTap: () => _selectPlaylist(playlist),
-          );
-        },
+            ListTile(
+              leading: const Icon(Icons.home),
+              title: const Text('Home'),
+              onTap: () {},
+            ),
+            ListTile(
+              leading: const Icon(Icons.bar_chart),
+              title: const Text('Stats'),
+              onTap: () {},
+            ),
+            ListTile(
+              leading: const Icon(Icons.queue),
+              title: const Text('Queue'),
+              onTap: () {},
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings),
+              title: const Text('Settings'),
+              onTap: () {},
+            ),
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Row(
+                children: [
+                  const Text(
+                    'PLAYLISTS',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.add, size: 20),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () async {
+                      final name = await showCreatePlaylistDialog(context);
+                      if (name != null && name.isNotEmpty) {
+                        widget.onAddPlaylist(name);
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.settings_applications, size: 20),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const ManagePlaylistsPage(),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                itemCount: widget.playlists.length,
+                itemBuilder: (context, index) {
+                  final playlist = widget.playlists[index];
+                  final isSelected = playlist == _selectedPlaylist;
+                  return GestureDetector(
+                    onLongPressStart: (details) {
+                      _showPlaylistMenu(context, details.globalPosition, playlist);
+                    },
+                    child: ListTile(
+                      leading: Icon(Icons.queue_music, color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey),
+                      title: Text(
+                        playlist.name,
+                        style: TextStyle(
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          color: isSelected ? Theme.of(context).colorScheme.primary : null,
+                        ),
+                      ),
+                      onTap: () => _selectPlaylist(playlist),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
-    );
-  }
-
-  Widget _buildMainView() {
-    return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
+            // Custom App Bar with Hamburger menu in SafeArea to open Drawer
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                children: [
+                  Builder(
+                    builder: (context) {
+                      return IconButton(
+                        icon: const Icon(Icons.menu),
+                        onPressed: () {
+                          Scaffold.of(context).openDrawer();
+                        },
+                      );
+                    }
+                  ),
+                  const Spacer(),
+                ],
+              ),
+            ),
             // Control Panel at the top
             MobileControlPanel(
               currentTrack: _currentTrack,
@@ -147,8 +267,6 @@ class _MobileLayoutState extends State<MobileLayout> {
                       _selectedPlaylist!.name,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
                     ),
-                    const Spacer(),
-                    const Text('Swipe left for playlists', style: TextStyle(fontSize: 12, color: Colors.grey)),
                   ],
                 ),
               ),

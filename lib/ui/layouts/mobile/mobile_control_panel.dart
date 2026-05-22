@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../../models/playlist.dart';
 import '../../../models/track.dart';
 
 class MobileControlPanel extends StatelessWidget {
@@ -26,7 +25,7 @@ class MobileControlPanel extends StatelessWidget {
         color: Theme.of(context).colorScheme.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withAlpha(13),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
