@@ -1,24 +1,19 @@
 import 'package:flutter/material.dart';
-import '../../../models/track.dart';
+import 'package:provider/provider.dart';
+import 'package:audio_video_progress_bar/audio_video_progress_bar.dart';
+import '../../../services/player_provider.dart';
 
 class DesktopControlPanel extends StatelessWidget {
-  final Track? currentTrack;
-  final bool isPlaying;
-  final VoidCallback onPlayPause;
-  final VoidCallback onNext;
-  final VoidCallback onPrev;
-
-  const DesktopControlPanel({
-    super.key,
-    required this.currentTrack,
-    required this.isPlaying,
-    required this.onPlayPause,
-    required this.onNext,
-    required this.onPrev,
-  });
+  const DesktopControlPanel({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final player = context.watch<PlayerProvider>();
+    final currentTrack = player.currentTrack;
+    final isPlaying = player.isPlaying;
+    final isShuffle = player.settings.shuffle;
+    final repeatMode = player.settings.repeatMode;
+
     return Container(
       height: 90,
       decoration: BoxDecoration(
@@ -76,41 +71,32 @@ class DesktopControlPanel extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    IconButton(icon: const Icon(Icons.shuffle), onPressed: () {}),
-                    IconButton(icon: const Icon(Icons.skip_previous), onPressed: onPrev),
+                    IconButton(
+                        icon: Icon(Icons.shuffle, color: isShuffle ? Theme.of(context).colorScheme.primary : Colors.grey),
+                        onPressed: player.toggleShuffle),
+                    IconButton(icon: const Icon(Icons.skip_previous), onPressed: player.playPrevious),
                     FloatingActionButton.small(
                       elevation: 0,
-                      onPressed: onPlayPause,
+                      onPressed: player.togglePlayPause,
                       child: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
                     ),
-                    IconButton(icon: const Icon(Icons.skip_next), onPressed: onNext),
-                    IconButton(icon: const Icon(Icons.repeat), onPressed: () {}),
+                    IconButton(icon: const Icon(Icons.skip_next), onPressed: player.playNext),
+                    IconButton(
+                        icon: Icon(repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
+                            color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
+                        onPressed: player.toggleRepeat),
                   ],
                 ),
-                Row(
-                  children: [
-                    const Text('0:00', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                    Expanded(
-                      child: SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          trackHeight: 4,
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                        ),
-                        child: Slider(
-                          value: 0.3,
-                          onChanged: (val) {},
-                          activeColor: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      currentTrack != null
-                        ? '${currentTrack!.duration.inMinutes}:${(currentTrack!.duration.inSeconds % 60).toString().padLeft(2, '0')}'
-                        : '0:00',
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                  ],
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: ProgressBar(
+                    progress: player.position,
+                    total: currentTrack?.duration ?? player.duration,
+                    onSeek: player.seek,
+                    barHeight: 4,
+                    thumbRadius: 6,
+                    timeLabelTextStyle: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
                 ),
               ],
             ),
@@ -130,8 +116,8 @@ class DesktopControlPanel extends StatelessWidget {
                       thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                     ),
                     child: Slider(
-                      value: 0.7,
-                      onChanged: (val) {},
+                      value: player.settings.volume,
+                      onChanged: player.setVolume,
                     ),
                   ),
                 ),

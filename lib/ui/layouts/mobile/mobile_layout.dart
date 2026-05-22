@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../models/playlist.dart';
-import '../../../models/track.dart';
-import 'mobile_control_panel.dart';
-import '../../components/playlist_dialogs.dart';
+import '../../../services/player_provider.dart';
 import '../../pages/manage_playlists_page.dart';
+import '../../components/playlist_dialogs.dart';
+import 'mobile_control_panel.dart';
 
 class MobileLayout extends StatefulWidget {
   final List<Playlist> playlists;
-  final void Function(String name) onAddPlaylist;
-  final void Function(String id, String newName) onRenamePlaylist;
-  final void Function(String id) onDeletePlaylist;
+  final Function(String) onAddPlaylist;
+  final Function(String, String) onRenamePlaylist;
+  final Function(String) onDeletePlaylist;
 
   const MobileLayout({
     super.key,
@@ -24,66 +25,6 @@ class MobileLayout extends StatefulWidget {
 }
 
 class _MobileLayoutState extends State<MobileLayout> {
-  Playlist? _selectedPlaylist;
-  Track? _currentTrack;
-  bool _isPlaying = false;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.playlists.isNotEmpty) {
-      _selectedPlaylist = widget.playlists.first;
-      if (_selectedPlaylist!.tracks.isNotEmpty) {
-        _currentTrack = _selectedPlaylist!.tracks.first;
-      }
-    }
-  }
-
-  void _playTrack(Track track) {
-    setState(() {
-      _currentTrack = track;
-      _isPlaying = true;
-    });
-  }
-
-  void _togglePlayPause() {
-    setState(() {
-      _isPlaying = !_isPlaying;
-    });
-  }
-
-  void _nextTrack() {
-    if (_selectedPlaylist == null || _currentTrack == null) return;
-    final tracks = _selectedPlaylist!.tracks;
-    final currentIndex = tracks.indexOf(_currentTrack!);
-    if (currentIndex < tracks.length - 1) {
-      _playTrack(tracks[currentIndex + 1]);
-    }
-  }
-
-  void _prevTrack() {
-    if (_selectedPlaylist == null || _currentTrack == null) return;
-    final tracks = _selectedPlaylist!.tracks;
-    final currentIndex = tracks.indexOf(_currentTrack!);
-    if (currentIndex > 0) {
-      _playTrack(tracks[currentIndex - 1]);
-    }
-  }
-
-  void _selectPlaylist(Playlist playlist) {
-    setState(() {
-      _selectedPlaylist = playlist;
-      if (playlist.tracks.isNotEmpty) {
-        _currentTrack = playlist.tracks.first;
-        _isPlaying = true;
-      } else {
-        _currentTrack = null;
-        _isPlaying = false;
-      }
-    });
-    // Close Drawer
-    Navigator.of(context).pop();
-  }
 
   void _showPlaylistMenu(BuildContext context, Offset position, Playlist playlist) async {
     final value = await showMenu<String>(
@@ -112,19 +53,16 @@ class _MobileLayoutState extends State<MobileLayout> {
       final confirm = await showDeletePlaylistDialog(context, playlist.name);
       if (confirm) {
         widget.onDeletePlaylist(playlist.id);
-        if (_selectedPlaylist?.id == playlist.id) {
-          setState(() {
-            _selectedPlaylist = null;
-            _currentTrack = null;
-            _isPlaying = false;
-          });
-        }
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final player = context.watch<PlayerProvider>();
+    final selectedPlaylist = player.currentPlaylist;
+    final currentTrack = player.currentTrack;
+
     return Scaffold(
       drawer: Drawer(
         child: Column(
@@ -202,7 +140,7 @@ class _MobileLayoutState extends State<MobileLayout> {
                 itemCount: widget.playlists.length,
                 itemBuilder: (context, index) {
                   final playlist = widget.playlists[index];
-                  final isSelected = playlist == _selectedPlaylist;
+                  final isSelected = playlist.id == selectedPlaylist?.id;
                   return GestureDetector(
                     onLongPressStart: (details) {
                       _showPlaylistMenu(context, details.globalPosition, playlist);
@@ -216,7 +154,10 @@ class _MobileLayoutState extends State<MobileLayout> {
                           color: isSelected ? Theme.of(context).colorScheme.primary : null,
                         ),
                       ),
-                      onTap: () => _selectPlaylist(playlist),
+                      onTap: () {
+                        player.playPlaylist(playlist);
+                        Navigator.of(context).pop();
+                      },
                     ),
                   );
                 },
@@ -248,15 +189,9 @@ class _MobileLayoutState extends State<MobileLayout> {
               ),
             ),
             // Control Panel at the top
-            MobileControlPanel(
-              currentTrack: _currentTrack,
-              isPlaying: _isPlaying,
-              onPlayPause: _togglePlayPause,
-              onNext: _nextTrack,
-              onPrev: _prevTrack,
-            ),
+            const MobileControlPanel(),
             // Playlist Name Header
-            if (_selectedPlaylist != null)
+            if (selectedPlaylist != null)
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Row(
@@ -264,7 +199,7 @@ class _MobileLayoutState extends State<MobileLayout> {
                     const Icon(Icons.list),
                     const SizedBox(width: 8),
                     Text(
-                      _selectedPlaylist!.name,
+                      selectedPlaylist.name,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
                     ),
                   ],
@@ -273,30 +208,39 @@ class _MobileLayoutState extends State<MobileLayout> {
             const Divider(height: 1),
             // Tracks List
             Expanded(
-              child: _selectedPlaylist == null
+              child: selectedPlaylist == null
                   ? const Center(child: Text('No Playlist Selected'))
                   : ListView.builder(
-                      itemCount: _selectedPlaylist!.tracks.length,
+                      itemCount: selectedPlaylist.trackIds.length,
                       itemBuilder: (context, index) {
-                        final track = _selectedPlaylist!.tracks[index];
-                        final isSelected = track == _currentTrack;
+                        final trackId = selectedPlaylist.trackIds[index];
+                        final track = player.getTrack(trackId);
+                        if (track == null) return const SizedBox.shrink();
+
+                        final isSelected = track.id == currentTrack?.id;
                         return ListTile(
                           leading: isSelected
                               ? Icon(Icons.volume_up, color: Theme.of(context).colorScheme.primary)
                               : Text('${index + 1}', style: const TextStyle(color: Colors.grey)),
                           title: Text(
-                            track.title,
+                            track.title != null && track.title!.isNotEmpty ? track.title! : track.cloudPath.split('/').last.split('.').first,
                             style: TextStyle(
                               fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                               color: isSelected ? Theme.of(context).colorScheme.primary : null,
                             ),
                           ),
-                          subtitle: Text(track.artist),
+                          subtitle: Text(track.artist ?? 'Unknown'),
                           trailing: Text(
                             '${track.duration.inMinutes}:${(track.duration.inSeconds % 60).toString().padLeft(2, '0')}',
                             style: const TextStyle(color: Colors.grey),
                           ),
-                          onTap: () => _playTrack(track),
+                          onTap: () {
+                            if (selectedPlaylist.id == player.currentPlaylist?.id) {
+                              player.playTrackDirectly(track);
+                            } else {
+                              player.playPlaylist(selectedPlaylist, startTrack: track);
+                            }
+                          },
                         );
                       },
                     ),
