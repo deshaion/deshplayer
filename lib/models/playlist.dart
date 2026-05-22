@@ -1,13 +1,22 @@
-import 'track.dart';
+import 'package:hive/hive.dart';
 
+
+part 'playlist.g.dart';
+
+@HiveType(typeId: 1)
 class Playlist {
+  @HiveField(0)
   final String id;
-  final String name;
-  final List<Track> tracks;
 
-  const Playlist({
+  @HiveField(1)
+  String name;
+
+  @HiveField(2)
+  List<String> trackIds;
+
+  Playlist({
     required this.id,
     required this.name,
-    required this.tracks,
+    required this.trackIds,
   });
 }

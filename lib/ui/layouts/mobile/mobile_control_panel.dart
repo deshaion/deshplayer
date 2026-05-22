@@ -1,24 +1,19 @@
 import 'package:flutter/material.dart';
-import '../../../models/track.dart';
+import 'package:provider/provider.dart';
+import 'package:audio_video_progress_bar/audio_video_progress_bar.dart';
+import '../../../services/player_provider.dart';
 
 class MobileControlPanel extends StatelessWidget {
-  final Track? currentTrack;
-  final bool isPlaying;
-  final VoidCallback onPlayPause;
-  final VoidCallback onNext;
-  final VoidCallback onPrev;
-
-  const MobileControlPanel({
-    super.key,
-    required this.currentTrack,
-    required this.isPlaying,
-    required this.onPlayPause,
-    required this.onNext,
-    required this.onPrev,
-  });
+  const MobileControlPanel({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final player = context.watch<PlayerProvider>();
+    final currentTrack = player.currentTrack;
+    final isPlaying = player.isPlaying;
+    final isShuffle = player.settings.shuffle;
+    final repeatMode = player.settings.repeatMode;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
       decoration: BoxDecoration(
@@ -49,36 +44,40 @@ class MobileControlPanel extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 16),
-          // Seek Slider (Dummy)
-          Slider(
-            value: 0.3,
-            onChanged: (val) {},
-            activeColor: Theme.of(context).colorScheme.primary,
+          // Seek Slider
+          ProgressBar(
+            progress: player.position,
+            total: currentTrack?.duration ?? player.duration,
+            onSeek: player.seek,
+            barHeight: 4,
+            thumbRadius: 6,
+            timeLabelTextStyle: const TextStyle(fontSize: 12, color: Colors.grey),
           ),
           // Controls
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               IconButton(
-                icon: const Icon(Icons.shuffle),
-                onPressed: () {},
+                icon: Icon(Icons.shuffle, color: isShuffle ? Theme.of(context).colorScheme.primary : Colors.grey),
+                onPressed: player.toggleShuffle,
               ),
               IconButton(
                 icon: const Icon(Icons.skip_previous, size: 32),
-                onPressed: onPrev,
+                onPressed: player.playPrevious,
               ),
               FloatingActionButton(
                 elevation: 0,
-                onPressed: onPlayPause,
+                onPressed: player.togglePlayPause,
                 child: Icon(isPlaying ? Icons.pause : Icons.play_arrow, size: 32),
               ),
               IconButton(
                 icon: const Icon(Icons.skip_next, size: 32),
-                onPressed: onNext,
+                onPressed: player.playNext,
               ),
               IconButton(
-                icon: const Icon(Icons.repeat),
-                onPressed: () {},
+                icon: Icon(repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
+                            color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
+                onPressed: player.toggleRepeat,
               ),
             ],
           ),

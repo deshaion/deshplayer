@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
-import '../../services/mock_media_service.dart';
-import '../../models/playlist.dart';
+import '../services/hive_storage_service.dart';
+import '../models/playlist.dart';
 import 'layouts/responsive_layout.dart';
 import 'layouts/mobile/mobile_layout.dart';
 import 'layouts/desktop/desktop_layout.dart';
 
 class DeshPlayerApp extends StatefulWidget {
-  const DeshPlayerApp({super.key});
+  final HiveStorageService storageService;
+  const DeshPlayerApp({super.key, required this.storageService});
 
   @override
   State<DeshPlayerApp> createState() => _DeshPlayerAppState();
 }
 
 class _DeshPlayerAppState extends State<DeshPlayerApp> {
-  final MockMediaService _mediaService = MockMediaService();
   List<Playlist> _playlists = [];
   bool _isLoading = true;
 
@@ -24,39 +24,36 @@ class _DeshPlayerAppState extends State<DeshPlayerApp> {
   }
 
   Future<void> _loadData() async {
-    final playlists = await _mediaService.fetchPlaylists();
+    // Read from Hive
+    final playlists = widget.storageService.getPlaylists();
     setState(() {
       _playlists = playlists;
       _isLoading = false;
     });
   }
 
-  void _addPlaylist(String name) {
-    setState(() {
-      final newPlaylist = Playlist(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: name,
-        tracks: [],
-      );
-      _playlists = [..._playlists, newPlaylist];
-    });
+  void _addPlaylist(String name) async {
+    final newPlaylist = Playlist(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: name,
+      trackIds: [],
+    );
+    await widget.storageService.savePlaylist(newPlaylist);
+    _loadData();
   }
 
-  void _renamePlaylist(String id, String newName) {
-    setState(() {
-      _playlists = _playlists.map((p) {
-        if (p.id == id) {
-          return Playlist(id: p.id, name: newName, tracks: p.tracks);
-        }
-        return p;
-      }).toList();
-    });
+  void _renamePlaylist(String id, String newName) async {
+    final p = widget.storageService.getPlaylist(id);
+    if (p != null) {
+      p.name = newName;
+      await widget.storageService.savePlaylist(p);
+      _loadData();
+    }
   }
 
-  void _deletePlaylist(String id) {
-    setState(() {
-      _playlists = _playlists.where((p) => p.id != id).toList();
-    });
+  void _deletePlaylist(String id) async {
+    await widget.storageService.deletePlaylist(id);
+    _loadData();
   }
 
   @override
