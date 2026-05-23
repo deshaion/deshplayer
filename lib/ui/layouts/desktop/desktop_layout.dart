@@ -1,3 +1,4 @@
+import '../../utils/search_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../models/playlist.dart';
@@ -32,23 +33,6 @@ class DesktopLayout extends StatefulWidget {
 class _DesktopLayoutState extends State<DesktopLayout> {
   String _searchQuery = '';
   final Map<String, String> _searchCache = {};
-
-  bool _matchesSubsequence(String query, String target) {
-    if (query.isEmpty) return true;
-    query = query.toLowerCase();
-    target = target.toLowerCase();
-
-    int queryIndex = 0;
-    for (int i = 0; i < target.length; i++) {
-      if (query[queryIndex] == target[i]) {
-        queryIndex++;
-        if (queryIndex == query.length) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
 
   void _showPlaylistMenu(BuildContext context, Offset position, Playlist playlist) async {
     final value = await showMenu<String>(
@@ -285,7 +269,7 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                         _searchCache[trackId] = searchString;
                                       }
 
-                                      return _matchesSubsequence(_searchQuery.trim(), searchString);
+                                      return SearchUtils.matchesSubsequence(_searchQuery.trim(), searchString);
                                     }).toList();
                                   }
 
