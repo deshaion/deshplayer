@@ -1,3 +1,4 @@
+import '../../utils/search_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../models/playlist.dart';
@@ -30,6 +31,9 @@ class DesktopLayout extends StatefulWidget {
 }
 
 class _DesktopLayoutState extends State<DesktopLayout> {
+  String _searchQuery = '';
+  final Map<String, String> _searchCache = {};
+
   void _showPlaylistMenu(BuildContext context, Offset position, Playlist playlist) async {
     final value = await showMenu<String>(
       context: context,
@@ -195,11 +199,39 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                               child: Row(
                                 children: [
                                   Expanded(
-                                    child: Text(
-                                      selectedPlaylist.name,
-                                      style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.bold),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          selectedPlaylist.name,
+                                          style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.bold),
+                                        ),
+                                        Text(
+                                          '${selectedPlaylist.trackIds.length} tracks',
+                                          style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.grey),
+                                        ),
+                                      ],
                                     ),
                                   ),
+                                  SizedBox(
+                                    width: 250,
+                                    child: TextField(
+                                      decoration: InputDecoration(
+                                        hintText: 'Search tracks...',
+                                        prefixIcon: const Icon(Icons.search),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8.0),
+                                        ),
+                                        contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                                      ),
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _searchQuery = value;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
                                   ElevatedButton.icon(
                                     onPressed: () {
                                       Navigator.of(context).push(
@@ -218,27 +250,52 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                             ),
                             const Divider(height: 1),
                             Expanded(
-                              child: ListView.separated(
-                                padding: const EdgeInsets.all(16.0),
-                                itemCount: selectedPlaylist.trackIds.length,
-                                separatorBuilder: (context, index) => const Divider(),
-                                itemBuilder: (context, index) {
-                                  final trackId = selectedPlaylist.trackIds[index];
-                                  final track = player.getTrack(trackId);
-                                  if (track == null) return const SizedBox.shrink();
+                              child: Builder(
+                                builder: (context) {
+                                  List<String> filteredTrackIds = selectedPlaylist.trackIds;
 
-                                  final isSelected = track.id == currentTrack?.id;
-                                  return TrackListTile(
-                                    track: track,
-                                    index: index,
-                                    playlist: selectedPlaylist,
-                                    isSelected: isSelected,
-                                    onTap: () {
-                                       if (selectedPlaylist.id == player.currentPlaylist?.id) {
-                                         player.playTrackDirectly(track);
-                                       } else {
-                                         player.playPlaylist(selectedPlaylist, startTrack: track);
-                                       }
+                                  if (_searchQuery.trim().length >= 2) {
+                                    filteredTrackIds = selectedPlaylist.trackIds.where((trackId) {
+                                      final track = player.getTrack(trackId);
+                                      if (track == null) return false;
+
+                                      String searchString = _searchCache[trackId] ?? '';
+                                      if (searchString.isEmpty) {
+                                        if (track.title != null && track.title!.isNotEmpty) {
+                                          searchString = '${track.artist ?? ""} ${track.title}';
+                                        } else {
+                                          searchString = track.cloudPath.split('/').last.split('.').first;
+                                        }
+                                        _searchCache[trackId] = searchString;
+                                      }
+
+                                      return SearchUtils.matchesSubsequence(_searchQuery.trim(), searchString);
+                                    }).toList();
+                                  }
+
+                                  return ListView.separated(
+                                    padding: const EdgeInsets.all(16.0),
+                                    itemCount: filteredTrackIds.length,
+                                    separatorBuilder: (context, index) => const Divider(),
+                                    itemBuilder: (context, index) {
+                                      final trackId = filteredTrackIds[index];
+                                      final track = player.getTrack(trackId);
+                                      if (track == null) return const SizedBox.shrink();
+
+                                      final isSelected = track.id == currentTrack?.id;
+                                      return TrackListTile(
+                                        track: track,
+                                        index: index,
+                                        playlist: selectedPlaylist,
+                                        isSelected: isSelected,
+                                        onTap: () {
+                                           if (selectedPlaylist.id == player.currentPlaylist?.id) {
+                                             player.playTrackDirectly(track);
+                                           } else {
+                                             player.playPlaylist(selectedPlaylist, startTrack: track);
+                                           }
+                                        },
+                                      );
                                     },
                                   );
                                 },

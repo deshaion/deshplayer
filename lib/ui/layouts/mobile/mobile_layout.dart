@@ -1,3 +1,4 @@
+import '../../utils/search_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../models/playlist.dart';
@@ -30,6 +31,8 @@ class MobileLayout extends StatefulWidget {
 }
 
 class _MobileLayoutState extends State<MobileLayout> {
+  String _searchQuery = '';
+  final Map<String, String> _searchCache = {};
 
   void _showPlaylistMenu(BuildContext context, Offset position, Playlist playlist) async {
     final value = await showMenu<String>(
@@ -206,11 +209,40 @@ class _MobileLayoutState extends State<MobileLayout> {
                     const Icon(Icons.list),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        selectedPlaylist.name,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            selectedPlaylist.name,
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                          Text(
+                            '${selectedPlaylist.trackIds.length} tracks',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                          ),
+                        ],
                       ),
                     ),
+                    SizedBox(
+                      width: 120,
+                      child: TextField(
+                        decoration: InputDecoration(
+                          hintText: 'Search...',
+                          prefixIcon: const Icon(Icons.search, size: 16),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8.0),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 8),
+                        ),
+                        style: const TextStyle(fontSize: 14),
+                        onChanged: (value) {
+                          setState(() {
+                            _searchQuery = value;
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     ElevatedButton.icon(
                       onPressed: () {
                         Navigator.of(context).push(
@@ -233,25 +265,50 @@ class _MobileLayoutState extends State<MobileLayout> {
             Expanded(
               child: selectedPlaylist == null
                   ? const Center(child: Text('No Playlist Selected'))
-                  : ListView.builder(
-                      itemCount: selectedPlaylist.trackIds.length,
-                      itemBuilder: (context, index) {
-                        final trackId = selectedPlaylist.trackIds[index];
-                        final track = player.getTrack(trackId);
-                        if (track == null) return const SizedBox.shrink();
+                  : Builder(
+                      builder: (context) {
+                        List<String> filteredTrackIds = selectedPlaylist.trackIds;
 
-                        final isSelected = track.id == currentTrack?.id;
-                        return TrackListTile(
-                          track: track,
-                          index: index,
-                          playlist: selectedPlaylist,
-                          isSelected: isSelected,
-                          onTap: () {
-                            if (selectedPlaylist.id == player.currentPlaylist?.id) {
-                              player.playTrackDirectly(track);
-                            } else {
-                              player.playPlaylist(selectedPlaylist, startTrack: track);
+                        if (_searchQuery.trim().length >= 2) {
+                          filteredTrackIds = selectedPlaylist.trackIds.where((trackId) {
+                            final track = player.getTrack(trackId);
+                            if (track == null) return false;
+
+                            String searchString = _searchCache[trackId] ?? '';
+                            if (searchString.isEmpty) {
+                              if (track.title != null && track.title!.isNotEmpty) {
+                                searchString = '${track.artist ?? ""} ${track.title}';
+                              } else {
+                                searchString = track.cloudPath.split('/').last.split('.').first;
+                              }
+                              _searchCache[trackId] = searchString;
                             }
+
+                            return SearchUtils.matchesSubsequence(_searchQuery.trim(), searchString);
+                          }).toList();
+                        }
+
+                        return ListView.builder(
+                          itemCount: filteredTrackIds.length,
+                          itemBuilder: (context, index) {
+                            final trackId = filteredTrackIds[index];
+                            final track = player.getTrack(trackId);
+                            if (track == null) return const SizedBox.shrink();
+
+                            final isSelected = track.id == currentTrack?.id;
+                            return TrackListTile(
+                              track: track,
+                              index: index,
+                              playlist: selectedPlaylist,
+                              isSelected: isSelected,
+                              onTap: () {
+                                if (selectedPlaylist.id == player.currentPlaylist?.id) {
+                                  player.playTrackDirectly(track);
+                                } else {
+                                  player.playPlaylist(selectedPlaylist, startTrack: track);
+                                }
+                              },
+                            );
                           },
                         );
                       },
