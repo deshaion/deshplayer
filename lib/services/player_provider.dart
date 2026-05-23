@@ -92,7 +92,20 @@ class PlayerProvider extends ChangeNotifier {
     _audioService.player.playbackEventStream.listen(
       (event) {},
       onError: (Object e, StackTrace stackTrace) {
-        _handlePlaybackError(e);
+        // If it throws an error but we are at the very end of the file, treat it as EOF.
+        // This commonly happens with FLAC trailing garbage where ffmpeg expects another frame.
+        if (_duration.inMilliseconds > 0 &&
+            _position.inMilliseconds >= _duration.inMilliseconds - 1500) {
+          _log.info('Caught terminal decoding error near EOF. Treating as successful completion. Error: $e');
+          _consecutiveFailures = 0; // Reset failures
+
+          // Add a small delay to give media_kit/just_audio time to dispose the bad native instance gracefully
+          Future.delayed(const Duration(milliseconds: 500), () {
+            playNext();
+          });
+        } else {
+          _handlePlaybackError(e);
+        }
       },
     );
 
@@ -351,7 +364,10 @@ class PlayerProvider extends ChangeNotifier {
       _log.info(
         'Skipping to next track due to error. Failure $_consecutiveFailures/$_maxConsecutiveFailures',
       );
-      playNext();
+      // Wait for player state to reset before trying to play the next track
+      Future.delayed(const Duration(milliseconds: 500), () {
+        playNext();
+      });
     } else {
       _log.severe(
         'Too many consecutive failures ($_maxConsecutiveFailures). Stopping playback.',
