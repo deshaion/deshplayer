@@ -78,10 +78,11 @@ class _DesktopLayoutState extends State<DesktopLayout> {
             child: Row(
               children: [
                 // Left Sidebar (Playlists)
-                Container(
+                SizedBox(
                   width: 250,
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest.withAlpha(76),
-                  child: Column(
+                  child: Material(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest.withAlpha(76),
+                    child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Padding(
@@ -185,6 +186,7 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                       ),
                     ],
                   ),
+                ),
                 ),
                 const VerticalDivider(width: 1, thickness: 1),
                 // Main Area (Tracks)
