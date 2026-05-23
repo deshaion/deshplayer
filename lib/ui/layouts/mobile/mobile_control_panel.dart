@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart';
 import '../../../services/player_provider.dart';
+import '../../../services/hive_storage_service.dart';
 
 class MobileControlPanel extends StatelessWidget {
   const MobileControlPanel({super.key});
@@ -79,10 +80,91 @@ class MobileControlPanel extends StatelessWidget {
                             color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
                 onPressed: player.toggleRepeat,
               ),
+              Builder(
+                builder: (context) {
+                  final iconKey = GlobalKey();
+                  return IconButton(
+                    key: iconKey,
+                    icon: const Icon(Icons.more_vert, color: Colors.grey),
+                    onPressed: currentTrack != null
+                        ? () => _showTrackMenu(context, player, currentTrack, iconKey)
+                        : null,
+                  );
+                }
+              ),
             ],
           ),
         ],
       ),
+    );
+  }
+
+  void _showTrackMenu(BuildContext context, PlayerProvider player, dynamic currentTrack, GlobalKey iconKey) async {
+    final storage = HiveStorageService();
+
+    final RenderBox? renderBox = iconKey.currentContext?.findRenderObject() as RenderBox?;
+    final offset = renderBox?.localToGlobal(Offset.zero);
+    final dx = offset?.dx ?? 1000;
+    final dy = offset?.dy ?? 1000;
+
+    final value = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(dx, dy - 50, dx + 50, dy), // Adjust to show above icon
+      items: [
+        const PopupMenuItem(
+          value: 'playlist',
+          child: Text('Send to Playlist'),
+        ),
+      ],
+    );
+
+    if (!context.mounted) return;
+
+    if (value == 'playlist') {
+      _showPlaylistDialog(context, storage, currentTrack);
+    }
+  }
+
+  void _showPlaylistDialog(BuildContext context, HiveStorageService storage, dynamic track) {
+    final playlists = storage.getPlaylists();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Send to Playlist'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: playlists.length,
+              itemBuilder: (context, idx) {
+                final p = playlists[idx];
+                return ListTile(
+                  title: Text(p.name),
+                  onTap: () {
+                    if (!p.trackIds.contains(track.id)) {
+                      p.trackIds.add(track.id);
+                      storage.savePlaylist(p);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Added to ${p.name}')));
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Already in ${p.name}')));
+                    }
+                    Navigator.of(context).pop();
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'))
+          ],
+        );
+      },
     );
   }
 }
