@@ -126,6 +126,12 @@ class _CloudImportPageState extends State<CloudImportPage> {
       }
     }
 
+    // Create a map of existing tracks by their cloud path
+    final Map<String, Track> globalTracksByPath = {};
+    for (final track in storageService.tracksBox.values) {
+      globalTracksByPath[track.cloudPath] = track;
+    }
+
     while(dirsToProcess.isNotEmpty) {
        final currentDir = dirsToProcess.removeAt(0);
 
@@ -147,7 +153,7 @@ class _CloudImportPageState extends State<CloudImportPage> {
              if (n.isDir) {
                 dirsToProcess.add(n.path);
              } else {
-                await _importSingleFile(n, storageService, existingCloudPaths, cloudMetadata);
+                await _importSingleFile(n, storageService, existingCloudPaths, cloudMetadata, globalTracksByPath);
              }
            }
            if (nodes.length < limit) {
@@ -160,7 +166,7 @@ class _CloudImportPageState extends State<CloudImportPage> {
     }
   }
 
-  Future<void> _importSingleFile(CloudNode node, [HiveStorageService? storageService, Set<String>? existingCloudPaths, Map<String, dynamic>? folderMetadata]) async {
+  Future<void> _importSingleFile(CloudNode node, [HiveStorageService? storageService, Set<String>? existingCloudPaths, Map<String, dynamic>? folderMetadata, Map<String, Track>? globalTracksByPath]) async {
     if (_selectedProvider == null) return;
 
     // Check if it's audio
@@ -188,8 +194,30 @@ class _CloudImportPageState extends State<CloudImportPage> {
     }
 
     if (pathsToCheck.contains(fullCloudPath)) {
-      _log.fine('Skipping duplicate file: $fullCloudPath');
+      _log.fine('Skipping duplicate file in playlist: $fullCloudPath');
       return; // skip duplicate
+    }
+
+    // Check if track exists globally
+    Track? existingTrack;
+    if (globalTracksByPath != null) {
+      existingTrack = globalTracksByPath[fullCloudPath];
+    } else {
+      for (final track in storage.tracksBox.values) {
+        if (track.cloudPath == fullCloudPath) {
+          existingTrack = track;
+          break;
+        }
+      }
+    }
+
+    if (existingTrack != null) {
+      _log.fine('Reusing existing global track for file: $fullCloudPath');
+      p.trackIds.add(existingTrack.id);
+      pathsToCheck.add(fullCloudPath);
+      await storage.savePlaylist(p);
+      _log.info('Successfully added existing file: $fullCloudPath');
+      return;
     }
 
     String title = node.name;
@@ -221,9 +249,14 @@ class _CloudImportPageState extends State<CloudImportPage> {
     await storage.saveTrack(newTrack);
     p.trackIds.add(newTrack.id);
     pathsToCheck.add(fullCloudPath);
+
+    if (globalTracksByPath != null) {
+      globalTracksByPath[fullCloudPath] = newTrack;
+    }
+
     await storage.savePlaylist(p);
 
-    _log.info('Successfully imported file: $fullCloudPath');
+    _log.info('Successfully imported new file: $fullCloudPath');
   }
 
   void _goUp() {
