@@ -5,6 +5,7 @@ import '../models/track.dart';
 import 'cloud_provider.dart';
 import 'yandex_disk_provider.dart';
 import 'secure_storage_service.dart';
+import 'hive_storage_service.dart';
 import 'package:logging/logging.dart';
 
 class CloudMediaService {
@@ -94,6 +95,8 @@ class CloudMediaService {
         await response.stream.pipe(sink);
         await sink.close();
         _log.info('Download complete: ${file.path}');
+
+        await _cleanupCache(cacheDir);
       } else {
         _log.severe('Failed to download track: ${response.statusCode}');
         throw Exception('Failed to download track: ${response.statusCode}');
@@ -103,6 +106,75 @@ class CloudMediaService {
     }
 
     return file.path;
+  }
+
+  Future<void> _cleanupCache(Directory cacheDir) async {
+    _log.info('Running cache cleanup...');
+    try {
+      final hive = HiveStorageService();
+      final maxCacheSizeBytes = hive.getSettings().maxCacheSizeBytes;
+
+      int totalSize = 0;
+      final files = <File>[];
+      if (cacheDir.existsSync()) {
+        for (final entity in cacheDir.listSync()) {
+          if (entity is File) {
+            files.add(entity);
+            totalSize += entity.lengthSync();
+          }
+        }
+      }
+
+      _log.info('Current cache size: $totalSize, Max allowed: $maxCacheSizeBytes');
+
+      if (totalSize <= maxCacheSizeBytes) {
+        _log.info('Cache size is within limits.');
+        return;
+      }
+
+      _log.info('Cache size exceeds limits, cleaning up...');
+
+      // Get all tracks from Hive to determine lastAccessed
+      final allTracks = hive.tracksBox.values.toList();
+      final cachedTracks = allTracks.where((t) => t.localCachePath != null).toList();
+
+      // Sort tracks by lastAccessed (oldest first)
+      // Tracks without lastAccessed will be treated as very old
+      cachedTracks.sort((a, b) {
+        final dateA = a.lastAccessed ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final dateB = b.lastAccessed ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return dateA.compareTo(dateB);
+      });
+
+      for (final track in cachedTracks) {
+        if (totalSize <= maxCacheSizeBytes) {
+          break;
+        }
+
+        final localPath = track.localCachePath;
+        if (localPath != null) {
+          final file = File(localPath);
+          if (file.existsSync()) {
+            final fileSize = file.lengthSync();
+            file.deleteSync();
+            totalSize -= fileSize;
+            _log.info('Deleted cached file for track ${track.id}: $localPath, Reclaimed $fileSize bytes');
+
+            // Clear local cache path in Hive
+            track.localCachePath = null;
+            await hive.saveTrack(track);
+          } else {
+            // File doesn't exist, just clear the reference
+            track.localCachePath = null;
+            await hive.saveTrack(track);
+          }
+        }
+      }
+
+      _log.info('Cache cleanup finished. New total size: $totalSize');
+    } catch (e) {
+      _log.severe('Error during cache cleanup: $e');
+    }
   }
 
   Future<String> _mockDownload(Track track) async {
@@ -115,6 +187,9 @@ class CloudMediaService {
         file.writeAsBytesSync([0]);
     }
     _log.info('Mock download complete: ${file.path}');
+
+    await _cleanupCache(cacheDir);
+
     return file.path;
   }
 }
