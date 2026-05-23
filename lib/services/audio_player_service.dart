@@ -3,6 +3,9 @@ import 'package:just_audio/just_audio.dart';
 import '../models/track.dart';
 import 'hive_storage_service.dart';
 import 'cloud_media_service.dart';
+import 'metadata_service.dart';
+import 'stats_service.dart';
+import 'dart:async';
 import 'package:logging/logging.dart';
 
 class AudioPlayerService {
@@ -10,11 +13,42 @@ class AudioPlayerService {
   final AudioPlayer player = AudioPlayer();
   final HiveStorageService storageService;
   final CloudMediaService cloudMediaService = CloudMediaService();
+  final MetadataService metadataService = MetadataService();
 
   AudioPlayerService(this.storageService);
 
+  Future<void> preCacheTrack(Track track) async {
+    if (track.localCachePath != null && File(track.localCachePath!).existsSync()) {
+        return;
+    }
+
+    _log.info('Pre-caching track: ${track.id}');
+    try {
+        final localPath = await cloudMediaService.downloadAndCacheTrack(track);
+        track.localCachePath = localPath;
+        await storageService.saveTrack(track);
+    } catch (e) {
+        _log.warning('Failed to pre-cache track: ${track.id}', e);
+    }
+  }
+
+  StreamSubscription? _positionSubscription;
+
   Future<void> playTrack(Track track) async {
     _log.info('Attempting to play track: ${track.id} (${track.title})');
+
+    _positionSubscription?.cancel();
+    bool statsRecorded = false;
+    _positionSubscription = player.positionStream.listen((position) {
+        if (!statsRecorded && track.duration.inSeconds > 0) {
+            if (position.inSeconds >= track.duration.inSeconds / 2) {
+                StatsService().recordPlay(track);
+                statsRecorded = true;
+                _positionSubscription?.cancel();
+            }
+        }
+    });
+
     try {
       if (track.localCachePath != null && File(track.localCachePath!).existsSync()) {
         _log.fine('Playing from local cache: ${track.localCachePath}');
@@ -37,7 +71,14 @@ class AudioPlayerService {
            // For mock, just pretend it played
         }
         await storageService.saveTrack(track);
+
       }
+
+      // Check if we need to sync metadata (even if played from cache)
+      if (track.artist == null || track.duration.inSeconds == 0) {
+         _syncMetadataAsync(track);
+      }
+
       _log.info('Starting playback for track: ${track.id}');
       player.play();
       storageService.addToHistory(track.id);
@@ -45,6 +86,22 @@ class AudioPlayerService {
       _log.severe('Error playing track: ${track.id}', e, stackTrace);
       // Ignore
     }
+  }
+
+  Future<void> _syncMetadataAsync(Track track) async {
+      try {
+        final schemeIdx = track.cloudPath.indexOf('://');
+        if (schemeIdx == -1) return;
+        final providerId = track.cloudPath.substring(0, schemeIdx);
+        final provider = cloudMediaService.getProvider(providerId);
+        if (provider != null) {
+            final cacheDir = await cloudMediaService.getCacheDir();
+            await metadataService.updateMetadataInCloud(provider, track.cloudPath, track, cacheDir);
+            await storageService.saveTrack(track);
+        }
+      } catch (e) {
+          _log.severe('Error syncing metadata for track ${track.id}', e);
+      }
   }
 
   Future<void> pause() async {

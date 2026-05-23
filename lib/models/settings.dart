@@ -22,6 +22,9 @@ class AppSettings {
   @HiveField(5)
   String? lastActivePlaylistId;
 
+  @HiveField(6)
+  String? cloudStatsFolder;
+
   AppSettings({
     this.maxCacheSizeBytes = 1024 * 1024 * 1024, // 1GB default
     this.localMusicCacheFolder,
@@ -29,5 +32,6 @@ class AppSettings {
     this.repeatMode = 0,
     this.volume = 1.0,
     this.lastActivePlaylistId,
+    this.cloudStatsFolder = '/Statistics',
   });
 }

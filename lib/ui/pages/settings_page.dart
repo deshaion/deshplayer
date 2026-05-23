@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/cloud_media_service.dart';
+import '../../services/hive_storage_service.dart';
+import '../../models/settings.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -10,13 +12,25 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   final CloudMediaService _cloudMediaService = CloudMediaService();
+  final HiveStorageService _storageService = HiveStorageService();
   bool _isChecking = true;
   Map<String, bool> _connectionStatuses = {};
+
+  late AppSettings _settings;
+  late TextEditingController _statsFolderController;
 
   @override
   void initState() {
     super.initState();
+    _settings = _storageService.getSettings();
+    _statsFolderController = TextEditingController(text: _settings.cloudStatsFolder);
     _checkConnections();
+  }
+
+  @override
+  void dispose() {
+     _statsFolderController.dispose();
+     super.dispose();
   }
 
   Future<void> _checkConnections() async {
@@ -82,6 +96,12 @@ class _SettingsPageState extends State<SettingsPage> {
     _checkConnections();
   }
 
+  void _saveSettings() {
+      _settings.cloudStatsFolder = _statsFolderController.text;
+      _storageService.saveSettings(_settings);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Settings saved')));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -116,6 +136,31 @@ class _SettingsPageState extends State<SettingsPage> {
                           ),
                   );
                 }),
+                const Divider(),
+                const Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Text(
+                    'Application Settings',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  child: TextField(
+                     controller: _statsFolderController,
+                     decoration: const InputDecoration(
+                         labelText: 'Cloud Statistics Folder',
+                         helperText: 'e.g., /Statistics',
+                     ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: ElevatedButton(
+                      onPressed: _saveSettings,
+                      child: const Text('Save Settings'),
+                  ),
+                )
               ],
             ),
     );

@@ -6,6 +6,9 @@ import '../../pages/manage_playlists_page.dart';
 import '../../components/playlist_dialogs.dart';
 import 'desktop_control_panel.dart';
 import '../../pages/settings_page.dart';
+import '../../pages/queue/queue_page.dart';
+import '../../pages/stats/stats_page.dart';
+import '../../widgets/track_list_tile.dart';
 import '../../pages/import/cloud_import_page.dart';
 
 class DesktopLayout extends StatefulWidget {
@@ -94,13 +97,13 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                         contentPadding: const EdgeInsets.symmetric(horizontal: 24.0),
                         leading: const Icon(Icons.bar_chart),
                         title: const Text('Stats'),
-                        onTap: () {},
+                        onTap: () { Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StatsPage())); },
                       ),
                       ListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 24.0),
                         leading: const Icon(Icons.queue),
                         title: const Text('Queue'),
-                        onTap: () {},
+                        onTap: () { Navigator.of(context).push(MaterialPageRoute(builder: (_) => const QueuePage())); },
                       ),
                       ListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -225,22 +228,11 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                   if (track == null) return const SizedBox.shrink();
 
                                   final isSelected = track.id == currentTrack?.id;
-                                  return ListTile(
-                                    leading: isSelected
-                                        ? Icon(Icons.volume_up, color: Theme.of(context).colorScheme.primary)
-                                        : SizedBox(width: 24, child: Center(child: Text('${index + 1}', style: const TextStyle(color: Colors.grey)))),
-                                    title: Text(
-                                      track.title != null && track.title!.isNotEmpty ? track.title! : track.cloudPath.split('/').last.split('.').first,
-                                      style: TextStyle(
-                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                        color: isSelected ? Theme.of(context).colorScheme.primary : null,
-                                      ),
-                                    ),
-                                    subtitle: Text(track.artist ?? 'Unknown Artist'),
-                                    trailing: Text(
-                                      '${track.duration.inMinutes}:${(track.duration.inSeconds % 60).toString().padLeft(2, '0')}',
-                                      style: const TextStyle(color: Colors.grey),
-                                    ),
+                                  return TrackListTile(
+                                    track: track,
+                                    index: index,
+                                    playlist: selectedPlaylist,
+                                    isSelected: isSelected,
                                     onTap: () {
                                        if (selectedPlaylist.id == player.currentPlaylist?.id) {
                                          player.playTrackDirectly(track);
