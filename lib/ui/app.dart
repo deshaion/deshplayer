@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/hive_storage_service.dart';
+import '../services/player_provider.dart';
 import '../models/playlist.dart';
 import 'layouts/responsive_layout.dart';
 import 'layouts/mobile/mobile_layout.dart';
@@ -16,11 +19,36 @@ class DeshPlayerApp extends StatefulWidget {
 class _DeshPlayerAppState extends State<DeshPlayerApp> {
   List<Playlist> _playlists = [];
   bool _isLoading = true;
+  final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey =
+      GlobalKey<ScaffoldMessengerState>();
+  StreamSubscription<String>? _errorSubscription;
 
   @override
   void initState() {
     super.initState();
     _loadData();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final playerProvider = Provider.of<PlayerProvider>(
+        context,
+        listen: false,
+      );
+      _errorSubscription = playerProvider.errorStream.listen((errorMessage) {
+        _scaffoldMessengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _errorSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -59,6 +87,7 @@ class _DeshPlayerAppState extends State<DeshPlayerApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      scaffoldMessengerKey: _scaffoldMessengerKey,
       title: 'DeshPlayer',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

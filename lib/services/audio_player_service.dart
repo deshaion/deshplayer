@@ -18,22 +18,23 @@ class AudioPlayerService {
   AudioPlayerService(this.storageService);
 
   Future<void> preCacheTrack(Track track) async {
-    if (track.localCachePath != null && File(track.localCachePath!).existsSync()) {
-        return;
+    if (track.localCachePath != null &&
+        File(track.localCachePath!).existsSync()) {
+      return;
     }
 
     _log.info('Pre-caching track: ${track.id}');
     try {
-        final localPath = await cloudMediaService.downloadAndCacheTrack(track);
-        track.localCachePath = localPath;
-        await storageService.saveTrack(track);
+      final localPath = await cloudMediaService.downloadAndCacheTrack(track);
+      track.localCachePath = localPath;
+      await storageService.saveTrack(track);
 
-        // Check if we need to sync metadata (even if played from cache)
-        if (track.artist == null || track.duration.inSeconds == 0) {
-          _syncMetadataAsync(track);
-        }
+      // Check if we need to sync metadata (even if played from cache)
+      if (track.artist == null || track.duration.inSeconds == 0) {
+        _syncMetadataAsync(track);
+      }
     } catch (e) {
-        _log.warning('Failed to pre-cache track: ${track.id}', e);
+      _log.warning('Failed to pre-cache track: ${track.id}', e);
     }
   }
 
@@ -45,43 +46,52 @@ class AudioPlayerService {
     _positionSubscription?.cancel();
     bool statsRecorded = false;
     _positionSubscription = player.positionStream.listen((position) {
-        if (!statsRecorded && track.duration.inSeconds > 0) {
-            if (position.inSeconds >= track.duration.inSeconds / 2) {
-                StatsService().recordPlay(track);
-                statsRecorded = true;
-                _positionSubscription?.cancel();
-            }
+      if (!statsRecorded && track.duration.inSeconds > 0) {
+        if (position.inSeconds >= track.duration.inSeconds / 2) {
+          StatsService().recordPlay(track);
+          statsRecorded = true;
+          _positionSubscription?.cancel();
         }
+      }
     });
 
     try {
-      if (track.localCachePath != null && File(track.localCachePath!).existsSync()) {
+      if (track.localCachePath != null &&
+          File(track.localCachePath!).existsSync()) {
         _log.fine('Playing from local cache: ${track.localCachePath}');
         // Play from cache
         await player.setFilePath(track.localCachePath!);
         track.lastAccessed = DateTime.now();
         await storageService.saveTrack(track);
       } else {
-        _log.fine('Track not in local cache, requesting download from cloud: ${track.cloudPath}');
+        _log.fine(
+          'Track not in local cache, requesting download from cloud: ${track.cloudPath}',
+        );
         // Use dedicated service to download
         final localPath = await cloudMediaService.downloadAndCacheTrack(track);
         track.localCachePath = localPath;
         track.lastAccessed = DateTime.now();
 
         try {
-           await player.setFilePath(localPath);
-           _log.fine('Successfully set file path: $localPath');
+          await player.setFilePath(localPath);
+          _log.fine('Successfully set file path: $localPath');
         } catch (e, stackTrace) {
-           _log.warning('Error setting file path (might be mock): $localPath', e, stackTrace);
-           // For mock, just pretend it played
+          _log.warning(
+            'Error setting file path (might be mock): $localPath',
+            e,
+            stackTrace,
+          );
+          // Rethrow if it's not a mock exception
+          if (e is! UnsupportedError && e.toString() != 'Mock Exception') {
+            rethrow;
+          }
         }
         await storageService.saveTrack(track);
-
       }
 
       // Check if we need to sync metadata (even if played from cache)
       if (track.artist == null || track.duration.inSeconds == 0) {
-         _syncMetadataAsync(track);
+        _syncMetadataAsync(track);
       }
 
       _log.info('Starting playback for track: ${track.id}');
@@ -89,24 +99,30 @@ class AudioPlayerService {
       storageService.addToHistory(track.id);
     } catch (e, stackTrace) {
       _log.severe('Error playing track: ${track.id}', e, stackTrace);
-      // Ignore
+      // Rethrow to let the provider handle skipping to next track
+      rethrow;
     }
   }
 
   Future<void> _syncMetadataAsync(Track track) async {
-      try {
-        final schemeIdx = track.cloudPath.indexOf('://');
-        if (schemeIdx == -1) return;
-        final providerId = track.cloudPath.substring(0, schemeIdx);
-        final provider = cloudMediaService.getProvider(providerId);
-        if (provider != null) {
-            final cacheDir = await cloudMediaService.getCacheDir();
-            await metadataService.updateMetadataInCloud(provider, track.cloudPath, track, cacheDir);
-            await storageService.saveTrack(track);
-        }
-      } catch (e) {
-          _log.severe('Error syncing metadata for track ${track.id}', e);
+    try {
+      final schemeIdx = track.cloudPath.indexOf('://');
+      if (schemeIdx == -1) return;
+      final providerId = track.cloudPath.substring(0, schemeIdx);
+      final provider = cloudMediaService.getProvider(providerId);
+      if (provider != null) {
+        final cacheDir = await cloudMediaService.getCacheDir();
+        await metadataService.updateMetadataInCloud(
+          provider,
+          track.cloudPath,
+          track,
+          cacheDir,
+        );
+        await storageService.saveTrack(track);
       }
+    } catch (e) {
+      _log.severe('Error syncing metadata for track ${track.id}', e);
+    }
   }
 
   Future<void> pause() async {
