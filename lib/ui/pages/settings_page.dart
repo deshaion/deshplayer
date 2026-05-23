@@ -20,6 +20,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late AppSettings _settings;
   late TextEditingController _statsFolderController;
   late TextEditingController _maxCacheSizeController;
+  String? _selectedStatsProviderId;
 
   @override
   void initState() {
@@ -27,6 +28,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _settings = _storageService.getSettings();
     _statsFolderController = TextEditingController(text: _settings.cloudStatsFolder);
     _maxCacheSizeController = TextEditingController(text: CacheSizeParser.format(_settings.maxCacheSizeBytes));
+    _selectedStatsProviderId = _settings.cloudStatsProviderId;
     _checkConnections();
   }
 
@@ -108,6 +110,7 @@ class _SettingsPageState extends State<SettingsPage> {
       }
       _settings.maxCacheSizeBytes = cacheSizeBytes;
       _settings.cloudStatsFolder = _statsFolderController.text;
+      _settings.cloudStatsProviderId = _selectedStatsProviderId;
       _storageService.saveSettings(_settings);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Settings saved')));
   }
@@ -156,12 +159,42 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                  child: TextField(
-                     controller: _statsFolderController,
-                     decoration: const InputDecoration(
-                         labelText: 'Cloud Statistics Folder',
-                         helperText: 'e.g., /Statistics',
-                     ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _statsFolderController,
+                          decoration: const InputDecoration(
+                            labelText: 'Cloud Statistics Folder',
+                            helperText: 'e.g., /Statistics',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: DropdownButtonFormField<String?>(
+                          value: _selectedStatsProviderId,
+                          decoration: const InputDecoration(
+                            labelText: 'Provider',
+                          ),
+                          items: [
+                            const DropdownMenuItem<String?>(
+                              value: null,
+                              child: Text('None'),
+                            ),
+                            ..._cloudMediaService.providers.map((p) => DropdownMenuItem<String?>(
+                                  value: p.id,
+                                  child: Text(p.name),
+                                )),
+                          ],
+                          onChanged: (val) {
+                            setState(() {
+                              _selectedStatsProviderId = val;
+                            });
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 Padding(
