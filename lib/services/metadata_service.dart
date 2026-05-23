@@ -32,10 +32,16 @@ class MetadataService {
 
   Future<void> updateMetadataInCloud(CloudProvider provider, String cloudFilePath, Track track, Directory localCacheDir) async {
     try {
-      if (track.localCachePath == null || !File(track.localCachePath!).existsSync()) return;
+      if (track.localCachePath == null || !File(track.localCachePath!).existsSync()) {
+        _log.warning('Cannot read tags, file missing: ${track.localCachePath}');
+        return;
+      }
 
       final tags = await AudioTags.read(track.localCachePath!);
-      if (tags == null) return;
+      if (tags == null) {
+        _log.info('No audio tags found in file: ${track.localCachePath}');
+        return;
+      }
 
       final title = tags.title ?? track.title;
       final artist = tags.trackArtist ?? track.artist;
