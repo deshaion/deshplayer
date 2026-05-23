@@ -37,15 +37,15 @@ class CloudMediaService {
     // Since previous track definition just had "cloudPath", let's define a convention:
     // cloudPath will be formatted as: "providerId://<actual_path>"
 
-    final uri = Uri.tryParse(track.cloudPath);
-    if (uri == null || uri.scheme.isEmpty) {
-        _log.warning('Invalid cloudPath URI: ${track.cloudPath}, falling back to mock download');
+    final schemeIdx = track.cloudPath.indexOf('://');
+    if (schemeIdx == -1) {
+        _log.warning('Invalid cloudPath URI format: ${track.cloudPath}, falling back to mock download');
         // Fallback for mock tracks
         return _mockDownload(track);
     }
 
-    final providerId = uri.scheme;
-    final path = track.cloudPath.substring(providerId.length + 3); // remove "scheme://"
+    final providerId = track.cloudPath.substring(0, schemeIdx);
+    final path = track.cloudPath.substring(schemeIdx + 3); // remove "scheme://"
 
     final provider = getProvider(providerId);
     if (provider == null) {

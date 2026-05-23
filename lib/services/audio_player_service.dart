@@ -30,10 +30,10 @@ class AudioPlayerService {
         track.lastAccessed = DateTime.now();
 
         try {
-           await player.setUrl(track.cloudPath);
-           _log.fine('Successfully set URL: ${track.cloudPath}');
+           await player.setFilePath(localPath);
+           _log.fine('Successfully set file path: $localPath');
         } catch (e, stackTrace) {
-           _log.warning('Error setting URL (might be mock): ${track.cloudPath}', e, stackTrace);
+           _log.warning('Error setting file path (might be mock): $localPath', e, stackTrace);
            // For mock, just pretend it played
         }
         await storageService.saveTrack(track);
