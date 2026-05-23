@@ -5,6 +5,7 @@ import '../models/playlist.dart';
 import '../models/track.dart';
 import '../models/playback_state.dart' as pstate;
 import '../models/settings.dart';
+import 'dart:async';
 import 'hive_storage_service.dart';
 import 'audio_player_service.dart';
 import 'package:logging/logging.dart';
@@ -26,6 +27,13 @@ class PlayerProvider extends ChangeNotifier {
   final List<Track> _history = [];
 
   DateTime _lastSaveTime = DateTime.now();
+
+  // Error handling
+  final StreamController<String> _errorController =
+      StreamController<String>.broadcast();
+  Stream<String> get errorStream => _errorController.stream;
+  int _consecutiveFailures = 0;
+  static const int _maxConsecutiveFailures = 20;
 
   PlayerProvider(this._storageService) {
     _audioService = AudioPlayerService(_storageService);
@@ -50,7 +58,9 @@ class PlayerProvider extends ChangeNotifier {
 
     // Restore state
     if (_settings.lastActivePlaylistId != null) {
-      _currentPlaylist = _storageService.getPlaylist(_settings.lastActivePlaylistId!);
+      _currentPlaylist = _storageService.getPlaylist(
+        _settings.lastActivePlaylistId!,
+      );
       if (_currentPlaylist != null) {
         final state = _storageService.getPlaybackState(_currentPlaylist!.id);
         if (state != null && state.currentTrackId != null) {
@@ -61,26 +71,41 @@ class PlayerProvider extends ChangeNotifier {
 
           if (_currentTrack != null) {
             try {
-               if (_currentTrack!.localCachePath != null && await _audioService.player.setFilePath(_currentTrack!.localCachePath!) != null) {
-                 await _audioService.seek(_position);
-               } else {
-                 await _audioService.player.setUrl(_currentTrack!.cloudPath);
-                 await _audioService.seek(_position);
-               }
+              if (_currentTrack!.localCachePath != null &&
+                  await _audioService.player.setFilePath(
+                        _currentTrack!.localCachePath!,
+                      ) !=
+                      null) {
+                await _audioService.seek(_position);
+              } else {
+                await _audioService.player.setUrl(_currentTrack!.cloudPath);
+                await _audioService.seek(_position);
+              }
             } catch (e) {
-               // ignore
+              // ignore
             }
           }
         }
       }
     }
 
+    _audioService.player.playbackEventStream.listen(
+      (event) {},
+      onError: (Object e, StackTrace stackTrace) {
+        _handlePlaybackError(e);
+      },
+    );
+
     _audioService.player.playerStateStream.listen((state) {
       _isPlaying = state.playing;
       notifyListeners();
 
+      if (state.playing && state.processingState == ProcessingState.ready) {
+        _consecutiveFailures = 0; // Reset failures on successful playback
+      }
+
       if (state.processingState == ProcessingState.completed) {
-         playNext();
+        playNext();
       }
     });
 
@@ -118,65 +143,66 @@ class PlayerProvider extends ChangeNotifier {
       if (ids.isEmpty) return;
 
       if (_settings.shuffle) {
-         final random = Random();
-         while (_queue.length < targetQueueSize) {
-            final nextId = ids[random.nextInt(ids.length)];
-            final track = _storageService.getTrack(nextId);
-            if (track != null) {
-               _queue.add(track);
-            }
-         }
+        final random = Random();
+        while (_queue.length < targetQueueSize) {
+          final nextId = ids[random.nextInt(ids.length)];
+          final track = _storageService.getTrack(nextId);
+          if (track != null) {
+            _queue.add(track);
+          }
+        }
       } else {
-         // Add next tracks in order
-         int startIdx = 0;
-         if (_currentTrack != null) {
-             startIdx = ids.indexOf(_currentTrack!.id);
-         }
+        // Add next tracks in order
+        int startIdx = 0;
+        if (_currentTrack != null) {
+          startIdx = ids.indexOf(_currentTrack!.id);
+        }
 
-         // Start searching for next tracks
-         // if queue is not empty, start from the last track in the queue
-         if (_queue.isNotEmpty) {
-             final lastQueueTrackId = _queue.last.id;
-             final idx = ids.indexOf(lastQueueTrackId);
-             if (idx != -1) {
-                 startIdx = idx;
-             }
-         }
+        // Start searching for next tracks
+        // if queue is not empty, start from the last track in the queue
+        if (_queue.isNotEmpty) {
+          final lastQueueTrackId = _queue.last.id;
+          final idx = ids.indexOf(lastQueueTrackId);
+          if (idx != -1) {
+            startIdx = idx;
+          }
+        }
 
-         while (_queue.length < targetQueueSize) {
-             startIdx++;
-             if (startIdx >= ids.length) {
-                 if (_settings.repeatMode == 1) { // repeat all
-                     startIdx = 0;
-                 } else {
-                     break; // Reached end of playlist without repeat
-                 }
-             }
-             final track = _storageService.getTrack(ids[startIdx]);
-             if (track != null) {
-                 _queue.add(track);
-             }
-         }
+        while (_queue.length < targetQueueSize) {
+          startIdx++;
+          if (startIdx >= ids.length) {
+            if (_settings.repeatMode == 1) {
+              // repeat all
+              startIdx = 0;
+            } else {
+              break; // Reached end of playlist without repeat
+            }
+          }
+          final track = _storageService.getTrack(ids[startIdx]);
+          if (track != null) {
+            _queue.add(track);
+          }
+        }
       }
     }
 
     // Pre-cache next 2 tracks
     for (int i = 0; i < min(2, _queue.length); i++) {
-        _audioService.preCacheTrack(_queue[i]);
+      _audioService.preCacheTrack(_queue[i]);
     }
 
     notifyListeners();
   }
 
   void addToQueue(Track track) {
-      _queue.add(track);
-      notifyListeners();
+    _queue.add(track);
+    notifyListeners();
   }
 
   void removeFromQueue(Track track) {
-      _queue.remove(track);
-      _fillQueue();
-      notifyListeners();
+    _queue.remove(track);
+    _fillQueue();
+    notifyListeners();
   }
 
   Future<void> playPlaylist(Playlist playlist, {Track? startTrack}) async {
@@ -190,9 +216,9 @@ class PlayerProvider extends ChangeNotifier {
       if (playlist.trackIds.isNotEmpty) {
         final state = _storageService.getPlaybackState(playlist.id);
         if (state != null && state.currentTrackId != null) {
-             _currentTrack = _storageService.getTrack(state.currentTrackId!);
+          _currentTrack = _storageService.getTrack(state.currentTrackId!);
         } else {
-             _currentTrack = _storageService.getTrack(playlist.trackIds.first);
+          _currentTrack = _storageService.getTrack(playlist.trackIds.first);
         }
       } else {
         _currentTrack = null;
@@ -204,23 +230,31 @@ class PlayerProvider extends ChangeNotifier {
     notifyListeners();
 
     if (_currentTrack != null) {
-      await _audioService.playTrack(_currentTrack!);
-      final state = _storageService.getPlaybackState(playlist.id);
-      if (state != null) {
-        await _audioService.seek(state.position);
+      try {
+        await _audioService.playTrack(_currentTrack!);
+        final state = _storageService.getPlaybackState(playlist.id);
+        if (state != null) {
+          await _audioService.seek(state.position);
+        }
+      } catch (e) {
+        _handlePlaybackError(e);
       }
     }
   }
 
   Future<void> playTrackDirectly(Track track) async {
     if (_currentTrack != null) {
-        _history.add(_currentTrack!);
+      _history.add(_currentTrack!);
     }
     _currentTrack = track;
     _queue.clear();
     _fillQueue();
     notifyListeners();
-    await _audioService.playTrack(track);
+    try {
+      await _audioService.playTrack(track);
+    } catch (e) {
+      _handlePlaybackError(e);
+    }
   }
 
   Future<void> play() async {
@@ -246,13 +280,13 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> playNext() async {
     if (_currentTrack != null) {
-        // Repeat One (2) - just replay the current track
-        if (_settings.repeatMode == 2) {
-           await _audioService.seek(Duration.zero);
-           await _audioService.playTrack(_currentTrack!);
-           return;
-        }
-        _history.add(_currentTrack!);
+      // Repeat One (2) - just replay the current track
+      if (_settings.repeatMode == 2) {
+        await _audioService.seek(Duration.zero);
+        await _audioService.playTrack(_currentTrack!);
+        return;
+      }
+      _history.add(_currentTrack!);
     }
 
     if (_queue.isNotEmpty) {
@@ -260,7 +294,11 @@ class PlayerProvider extends ChangeNotifier {
       _currentTrack = nextTrack;
       _fillQueue();
       notifyListeners();
-      await _audioService.playTrack(nextTrack);
+      try {
+        await _audioService.playTrack(nextTrack);
+      } catch (e) {
+        _handlePlaybackError(e);
+      }
     } else {
       // reached end, could stop or loop
     }
@@ -268,28 +306,58 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> playPrevious() async {
     if (_history.isNotEmpty) {
-        if (_currentTrack != null) {
-            _queue.insert(0, _currentTrack!);
-        }
-        final prevTrack = _history.removeLast();
-        _currentTrack = prevTrack;
-        notifyListeners();
+      if (_currentTrack != null) {
+        _queue.insert(0, _currentTrack!);
+      }
+      final prevTrack = _history.removeLast();
+      _currentTrack = prevTrack;
+      notifyListeners();
+      try {
         await _audioService.playTrack(prevTrack);
+      } catch (e) {
+        _handlePlaybackError(e);
+      }
     } else {
-        // Fallback to legacy behaviour if history is empty (e.g. initial launch)
-        if (_currentPlaylist == null || _currentTrack == null) return;
-        final ids = _currentPlaylist!.trackIds;
-        final index = ids.indexOf(_currentTrack!.id);
-        if (index > 0) {
-          final prevTrack = _storageService.getTrack(ids[index - 1]);
-          if (prevTrack != null) {
-            _currentTrack = prevTrack;
-            _queue.clear();
-            _fillQueue();
-            notifyListeners();
+      // Fallback to legacy behaviour if history is empty (e.g. initial launch)
+      if (_currentPlaylist == null || _currentTrack == null) return;
+      final ids = _currentPlaylist!.trackIds;
+      final index = ids.indexOf(_currentTrack!.id);
+      if (index > 0) {
+        final prevTrack = _storageService.getTrack(ids[index - 1]);
+        if (prevTrack != null) {
+          _currentTrack = prevTrack;
+          _queue.clear();
+          _fillQueue();
+          notifyListeners();
+          try {
             await _audioService.playTrack(prevTrack);
+          } catch (e) {
+            _handlePlaybackError(e);
           }
         }
+      }
+    }
+  }
+
+  void _handlePlaybackError(Object e) {
+    _log.severe('Playback error caught in provider: $e');
+    _consecutiveFailures++;
+
+    final trackName = _currentTrack?.title ?? 'Unknown Track';
+    final errorMessage = 'Failed to play "$trackName". Error: $e';
+    _errorController.add(errorMessage);
+
+    if (_consecutiveFailures < _maxConsecutiveFailures) {
+      _log.info(
+        'Skipping to next track due to error. Failure $_consecutiveFailures/$_maxConsecutiveFailures',
+      );
+      playNext();
+    } else {
+      _log.severe(
+        'Too many consecutive failures ($_maxConsecutiveFailures). Stopping playback.',
+      );
+      _errorController.add('Too many errors. Stopping playback.');
+      pause();
     }
   }
 
@@ -331,7 +399,7 @@ class PlayerProvider extends ChangeNotifier {
     await _storageService.saveSettings(_settings);
 
     if (_queue.isEmpty) {
-        _fillQueue();
+      _fillQueue();
     }
 
     notifyListeners();
