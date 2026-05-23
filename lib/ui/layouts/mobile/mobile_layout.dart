@@ -11,6 +11,7 @@ import '../../pages/queue/queue_page.dart';
 import '../../pages/stats/stats_page.dart';
 import '../../widgets/track_list_tile.dart';
 import '../../pages/import/cloud_import_page.dart';
+import '../../../services/hive_storage_service.dart';
 
 class MobileLayout extends StatefulWidget {
   final List<Playlist> playlists;
@@ -307,6 +308,12 @@ class _MobileLayoutState extends State<MobileLayout> {
                                 } else {
                                   player.playPlaylist(selectedPlaylist, startTrack: track);
                                 }
+                              },
+                              onRemoveFromPlaylist: () {
+                                 setState(() {
+                                    selectedPlaylist.trackIds.remove(track.id);
+                                    HiveStorageService().savePlaylist(selectedPlaylist);
+                                 });
                               },
                             );
                           },

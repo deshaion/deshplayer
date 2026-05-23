@@ -11,6 +11,7 @@ class TrackListTile extends StatelessWidget {
   final Playlist playlist;
   final bool isSelected;
   final VoidCallback onTap;
+  final VoidCallback? onRemoveFromPlaylist;
 
   const TrackListTile({
     super.key,
@@ -19,6 +20,7 @@ class TrackListTile extends StatelessWidget {
     required this.playlist,
     required this.isSelected,
     required this.onTap,
+    this.onRemoveFromPlaylist,
   });
 
   void _showTrackMenu(BuildContext context, Offset position) async {
@@ -37,6 +39,10 @@ class TrackListTile extends StatelessWidget {
           value: 'playlist',
           child: Text('Send to Playlist'),
         ),
+        const PopupMenuItem(
+          value: 'remove',
+          child: Text('Remove from Playlist'),
+        ),
       ],
     );
 
@@ -47,6 +53,10 @@ class TrackListTile extends StatelessWidget {
        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${track.title} added to queue')));
     } else if (value == 'playlist') {
        _showPlaylistDialog(context, storage);
+    } else if (value == 'remove') {
+       if (onRemoveFromPlaylist != null) {
+         onRemoveFromPlaylist!();
+       }
     }
   }
 
