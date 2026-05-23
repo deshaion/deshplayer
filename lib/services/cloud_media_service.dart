@@ -82,17 +82,7 @@ class CloudMediaService {
 
     final cacheDir = await getCacheDir();
 
-    String ext = '.mp3';
-    final parts = path.split('/');
-    if (parts.isNotEmpty) {
-      final name = parts.last;
-      final extIdx = name.lastIndexOf('.');
-      if (extIdx != -1) {
-        ext = name.substring(extIdx);
-      }
-    }
-
-    final file = File('${cacheDir.path}/${track.id}$ext');
+    final file = File('${cacheDir.path}/${track.id}');
     if (!file.existsSync()) {
       _log.info('Downloading file to cache: ${file.path}');
       // Download actual file using streaming
@@ -120,20 +110,7 @@ class CloudMediaService {
     await Future.delayed(const Duration(seconds: 1));
     final cacheDir = await getCacheDir();
 
-    String ext = '.mp3';
-    final schemeIdx = track.cloudPath.indexOf('://');
-    String path = track.cloudPath;
-    if (schemeIdx != -1) path = track.cloudPath.substring(schemeIdx + 3);
-    final parts = path.split('/');
-    if (parts.isNotEmpty) {
-      final name = parts.last;
-      final extIdx = name.lastIndexOf('.');
-      if (extIdx != -1) {
-        ext = name.substring(extIdx);
-      }
-    }
-
-    final file = File('${cacheDir.path}/${track.id}$ext');
+    final file = File('${cacheDir.path}/${track.id}');
     if (!file.existsSync()) {
         file.writeAsBytesSync([0]);
     }
