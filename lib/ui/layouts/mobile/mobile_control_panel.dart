@@ -4,8 +4,15 @@ import 'package:audio_video_progress_bar/audio_video_progress_bar.dart';
 import '../../../services/player_provider.dart';
 import '../../../services/hive_storage_service.dart';
 
-class MobileControlPanel extends StatelessWidget {
+class MobileControlPanel extends StatefulWidget {
   const MobileControlPanel({super.key});
+
+  @override
+  State<MobileControlPanel> createState() => _MobileControlPanelState();
+}
+
+class _MobileControlPanelState extends State<MobileControlPanel> {
+  final GlobalKey _iconKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
@@ -80,17 +87,12 @@ class MobileControlPanel extends StatelessWidget {
                             color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
                 onPressed: player.toggleRepeat,
               ),
-              Builder(
-                builder: (context) {
-                  final iconKey = GlobalKey();
-                  return IconButton(
-                    key: iconKey,
-                    icon: const Icon(Icons.more_vert, color: Colors.grey),
-                    onPressed: currentTrack != null
-                        ? () => _showTrackMenu(context, player, currentTrack, iconKey)
-                        : null,
-                  );
-                }
+              IconButton(
+                key: _iconKey,
+                icon: const Icon(Icons.more_vert, color: Colors.grey),
+                onPressed: currentTrack != null
+                    ? () => _showTrackMenu(context, player, currentTrack, _iconKey)
+                    : null,
               ),
             ],
           ),

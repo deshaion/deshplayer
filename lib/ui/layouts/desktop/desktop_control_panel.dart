@@ -4,8 +4,15 @@ import 'package:audio_video_progress_bar/audio_video_progress_bar.dart';
 import '../../../services/player_provider.dart';
 import '../../../services/hive_storage_service.dart';
 
-class DesktopControlPanel extends StatelessWidget {
+class DesktopControlPanel extends StatefulWidget {
   const DesktopControlPanel({super.key});
+
+  @override
+  State<DesktopControlPanel> createState() => _DesktopControlPanelState();
+}
+
+class _DesktopControlPanelState extends State<DesktopControlPanel> {
+  final GlobalKey _iconKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
@@ -109,32 +116,29 @@ class DesktopControlPanel extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 const Icon(Icons.volume_down, color: Colors.grey),
-                SizedBox(
-                  width: 100,
-                  child: SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 4,
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                    ),
-                    child: Slider(
-                      value: player.settings.volume,
-                      onChanged: player.setVolume,
+                Flexible(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 100),
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 4,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                      ),
+                      child: Slider(
+                        value: player.settings.volume,
+                        onChanged: player.setVolume,
+                      ),
                     ),
                   ),
                 ),
                 const Icon(Icons.volume_up, color: Colors.grey),
                 const SizedBox(width: 8),
-                Builder(
-                  builder: (context) {
-                    final iconKey = GlobalKey();
-                    return IconButton(
-                      key: iconKey,
-                      icon: const Icon(Icons.more_vert, color: Colors.grey),
-                      onPressed: currentTrack != null
-                          ? () => _showTrackMenu(context, player, currentTrack, iconKey)
-                          : null,
-                    );
-                  }
+                IconButton(
+                  key: _iconKey,
+                  icon: const Icon(Icons.more_vert, color: Colors.grey),
+                  onPressed: currentTrack != null
+                      ? () => _showTrackMenu(context, player, currentTrack, _iconKey)
+                      : null,
                 ),
               ],
             ),
