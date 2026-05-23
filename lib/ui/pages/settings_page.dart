@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/cloud_media_service.dart';
 import '../../services/hive_storage_service.dart';
 import '../../models/settings.dart';
+import '../../utils/cache_size_parser.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -18,18 +19,21 @@ class _SettingsPageState extends State<SettingsPage> {
 
   late AppSettings _settings;
   late TextEditingController _statsFolderController;
+  late TextEditingController _maxCacheSizeController;
 
   @override
   void initState() {
     super.initState();
     _settings = _storageService.getSettings();
     _statsFolderController = TextEditingController(text: _settings.cloudStatsFolder);
+    _maxCacheSizeController = TextEditingController(text: CacheSizeParser.format(_settings.maxCacheSizeBytes));
     _checkConnections();
   }
 
   @override
   void dispose() {
      _statsFolderController.dispose();
+     _maxCacheSizeController.dispose();
      super.dispose();
   }
 
@@ -97,6 +101,12 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _saveSettings() {
+      final cacheSizeBytes = CacheSizeParser.parse(_maxCacheSizeController.text);
+      if (cacheSizeBytes == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invalid max cache size (e.g. 500mb, 5gb)')));
+        return;
+      }
+      _settings.maxCacheSizeBytes = cacheSizeBytes;
       _settings.cloudStatsFolder = _statsFolderController.text;
       _storageService.saveSettings(_settings);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Settings saved')));
@@ -151,6 +161,16 @@ class _SettingsPageState extends State<SettingsPage> {
                      decoration: const InputDecoration(
                          labelText: 'Cloud Statistics Folder',
                          helperText: 'e.g., /Statistics',
+                     ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  child: TextField(
+                     controller: _maxCacheSizeController,
+                     decoration: const InputDecoration(
+                         labelText: 'Max Cache Size',
+                         helperText: 'e.g., 500mb, 5gb (defaults to mb)',
                      ),
                   ),
                 ),
