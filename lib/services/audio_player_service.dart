@@ -38,22 +38,8 @@ class AudioPlayerService {
     }
   }
 
-  StreamSubscription? _positionSubscription;
-
   Future<void> playTrack(Track track) async {
     _log.info('Attempting to play track: ${track.id} (${track.title})');
-
-    _positionSubscription?.cancel();
-    bool statsRecorded = false;
-    _positionSubscription = player.positionStream.listen((position) {
-      if (!statsRecorded && track.duration.inSeconds > 0) {
-        if (position.inSeconds >= track.duration.inSeconds / 2) {
-          StatsService().recordPlay(track);
-          statsRecorded = true;
-          _positionSubscription?.cancel();
-        }
-      }
-    });
 
     try {
       if (track.localCachePath != null &&

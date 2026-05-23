@@ -54,6 +54,16 @@ class StatsService {
   }
 
   Future<void> recordPlay(Track track) async {
+      final artist = track.artist?.trim();
+      final title = track.title?.trim();
+
+      if (artist == null || artist.isEmpty || title == null || title.isEmpty) {
+          _log.info('Skipped recording play due to missing artist or title: ${track.id}');
+          return;
+      }
+
+      final trackKey = '$artist - $title';
+
       final now = DateTime.now();
       final key = '${now.year}-${now.month.toString().padLeft(2, '0')}_$_deviceId';
 
@@ -63,15 +73,14 @@ class StatsService {
           stats = json.decode(currentDataStr);
       }
 
-      final trackId = track.id;
-      if (stats.containsKey(trackId)) {
-          stats[trackId] = (stats[trackId] as int) + 1;
+      if (stats.containsKey(trackKey)) {
+          stats[trackKey] = (stats[trackKey] as int) + 1;
       } else {
-          stats[trackId] = 1;
+          stats[trackKey] = 1;
       }
 
       await _statsBox.put(key, json.encode(stats));
-      _log.info('Recorded play for track: ${track.id}');
+      _log.info('Recorded play for track: $trackKey');
 
       // Attempt to sync occasionally (e.g. 1 in 10 chance)
       if (DateTime.now().millisecondsSinceEpoch % 10 == 0) {

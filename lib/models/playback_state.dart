@@ -13,9 +13,17 @@ class PlaybackState {
   @HiveField(2)
   Duration position;
 
+  @HiveField(3, defaultValue: Duration.zero)
+  Duration accumulatedTime;
+
+  @HiveField(4, defaultValue: false)
+  bool statsRecorded;
+
   PlaybackState({
     required this.playlistId,
     this.currentTrackId,
     this.position = Duration.zero,
+    this.accumulatedTime = Duration.zero,
+    this.statsRecorded = false,
   });
 }
