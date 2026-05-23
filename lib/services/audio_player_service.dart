@@ -27,6 +27,11 @@ class AudioPlayerService {
         final localPath = await cloudMediaService.downloadAndCacheTrack(track);
         track.localCachePath = localPath;
         await storageService.saveTrack(track);
+
+        // Check if we need to sync metadata (even if played from cache)
+        if (track.artist == null || track.duration.inSeconds == 0) {
+          _syncMetadataAsync(track);
+        }
     } catch (e) {
         _log.warning('Failed to pre-cache track: ${track.id}', e);
     }

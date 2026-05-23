@@ -7,8 +7,10 @@ import '../models/playback_state.dart' as pstate;
 import '../models/settings.dart';
 import 'hive_storage_service.dart';
 import 'audio_player_service.dart';
+import 'package:logging/logging.dart';
 
 class PlayerProvider extends ChangeNotifier {
+  final _log = Logger('PlayerProvider');
   final HiveStorageService _storageService;
   late AudioPlayerService _audioService;
 
@@ -96,6 +98,7 @@ class PlayerProvider extends ChangeNotifier {
     _audioService.player.durationStream.listen((dur) {
       if (dur != null) {
         _duration = dur;
+        _log.info('Duration listen: $dur');
         notifyListeners();
       }
     });
