@@ -1,12 +1,15 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'package:http/http.dart' as http;
 import '../models/cloud_node.dart';
 import 'cloud_provider.dart';
 import 'secure_storage_service.dart';
+import 'package:logging/logging.dart';
 
 class YandexDiskProvider implements CloudProvider {
   final SecureStorageService _secureStorage;
   static const String _baseUrl = 'https://cloud-api.yandex.net/v1/disk/resources';
+  final _log = Logger('API');
 
   YandexDiskProvider(this._secureStorage);
 
@@ -23,6 +26,8 @@ class YandexDiskProvider implements CloudProvider {
   @override
   Future<bool> isConnected() async {
     final token = await _getToken();
+    _log.severe('Yandex API connection token is valid: ${token != null && token.isNotEmpty}');
+
     if (token == null || token.isEmpty) return false;
     // Verify token
     try {
@@ -30,14 +35,22 @@ class YandexDiskProvider implements CloudProvider {
         Uri.parse('https://cloud-api.yandex.net/v1/disk'),
         headers: {'Authorization': 'OAuth $token'},
       );
+
+      // Log if the server responds with an error code (like 401 Unauthorized)
+      if (response.statusCode != 200) {
+        _log.severe('Yandex API connection failed Status Code: ${response.statusCode}, Body: ${response.body}');
+      }
+
       return response.statusCode == 200;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _log.severe('Exception in isConnected: ${e.toString()}, Stack: ${stackTrace.toString()}');
       return false;
     }
   }
 
   @override
   Future<void> connect(String token) async {
+    _log.severe('Yandex API connect ${token.isNotEmpty}');
     await _secureStorage.saveToken(id, token);
   }
 
