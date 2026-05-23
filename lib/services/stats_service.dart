@@ -4,6 +4,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
+import 'package:http/http.dart' as http;
 import '../models/track.dart';
 import '../models/settings.dart';
 import 'cloud_media_service.dart';
@@ -82,7 +83,7 @@ class StatsService {
       final Map<String, int> aggregated = {};
 
       for (final key in _statsBox.keys) {
-          if (key == _deviceIdKey) continue;
+          if (key == _deviceIdKey || key.toString().endsWith('-md5')) continue;
           // Key format: YYYY-MM_deviceId
           final parts = key.toString().split('_');
           if (parts.isNotEmpty) {
@@ -119,51 +120,98 @@ class StatsService {
   Future<void> _syncStatsToCloud() async {
       try {
           final cloudService = CloudMediaService();
-          if (cloudService.providers.isEmpty) return;
-          final provider = cloudService.providers.first;
-          if (!await provider.isConnected()) return;
+          final settingsBox = Hive.box<AppSettings>('settings');
+          final settings = settingsBox.get('app_settings') ?? AppSettings();
+          final providerId = settings.cloudStatsProviderId;
+
+          if (providerId == null) {
+              _log.info('No cloud stats provider selected, skipping sync');
+              return;
+          }
+
+          final provider = cloudService.getProvider(providerId);
+          if (provider == null || !await provider.isConnected()) {
+              _log.warning('Selected cloud stats provider is not available or not connected');
+              return;
+          }
 
           final cacheDir = await cloudService.getCacheDir();
+          final folder = settings.cloudStatsFolder ?? '/Statistics';
+          String cleanFolder = folder.replaceAll(RegExp(r'^/+|/+$'), '');
+          if (cleanFolder.isEmpty) cleanFolder = 'Statistics';
+
+          // --- UPLOAD PHASE ---
+          // Yandex Disk requires parent folders to exist. We'll try to create it if we have a token.
+          try {
+              if (provider.id == 'yandex_disk') {
+                  final uri = Uri.parse('https://cloud-api.yandex.net/v1/disk/resources').replace(queryParameters: {
+                     'path': 'disk:/$cleanFolder'
+                  });
+                  // In a full implementation, we'd inject http and the token here, but given time constraints
+                  // and the provider abstraction, we'll rely on the user having created the directory or it being
+                  // the default root directory if they cleared it.
+                  // The `uploadFile` method will throw if the directory doesn't exist.
+                  _log.fine('Attempting to upload to disk:/$cleanFolder, uri: $uri (ensure folder exists)');
+              }
+          } catch(e) {
+              _log.warning('Error pre-checking upload directory: $e');
+          }
 
           for (final key in _statsBox.keys) {
-              if (key == _deviceIdKey) continue;
+              final keyStr = key.toString();
+              if (keyStr == _deviceIdKey || keyStr.endsWith('-md5') || !keyStr.endsWith('_$_deviceId')) continue;
 
-              final dataStr = _statsBox.get(key);
+              final dataStr = _statsBox.get(keyStr);
               if (dataStr != null) {
-                  final file = File('${cacheDir.path}/$key.json');
+                  final file = File('${cacheDir.path}/$keyStr.json');
                   await file.writeAsString(dataStr);
 
-                  final settingsBox = Hive.box<AppSettings>('settings');
-                  final settings = settingsBox.get('app_settings') ?? AppSettings();
-                  final folder = settings.cloudStatsFolder ?? '/Statistics';
-
-                  // Clean folder path
-                  String cleanFolder = folder.replaceAll(RegExp(r'^/+|/+$'), '');
-                  if (cleanFolder.isEmpty) cleanFolder = 'Statistics';
-
-                  // Yandex Disk requires parent folders to exist. We'll try to create it if we have a token.
-                  try {
-                      if (provider.id == 'yandex_disk') {
-                          final uri = Uri.parse('https://cloud-api.yandex.net/v1/disk/resources').replace(queryParameters: {
-                             'path': 'disk:/$cleanFolder'
-                          });
-                          // In a full implementation, we'd inject http and the token here, but given time constraints
-                          // and the provider abstraction, we'll rely on the user having created the directory or it being
-                          // the default root directory if they cleared it.
-                          // The `uploadFile` method will throw if the directory doesn't exist.
-                          _log.fine('Attempting to upload to disk:/$cleanFolder, uri: $uri (ensure folder exists)');
-                      }
-                  } catch(e) {
-                      _log.warning('Error pre-checking upload directory: $e');
-                  }
-
-                  await provider.uploadFile('disk:/$cleanFolder/$key.json', file);
+                  await provider.uploadFile('disk:/$cleanFolder/$keyStr.json', file);
 
                   if (file.existsSync()) {
                       file.deleteSync();
                   }
               }
           }
+
+          // --- DOWNLOAD PHASE ---
+          try {
+              final nodes = await provider.listPath('disk:/$cleanFolder');
+              for (final node in nodes) {
+                  if (node.isDir || !node.name.endsWith('.json')) continue;
+
+                  final filename = node.name;
+                  final key = filename.substring(0, filename.length - 5); // remove .json
+
+                  // Ignore our own files
+                  if (key.endsWith('_$_deviceId')) continue;
+
+                  // Ensure it's a valid format YYYY-MM_deviceId
+                  if (key.split('_').length < 2) continue;
+
+                  final remoteMd5 = node.md5;
+                  if (remoteMd5 == null) continue; // Cannot check if changed easily, skip for now
+
+                  final localMd5 = _statsBox.get('$key-md5');
+                  if (localMd5 != remoteMd5) {
+                      _log.info('Downloading updated stats for $key');
+                      final downloadUrl = await provider.getDownloadUrl(node.path);
+                      if (downloadUrl != null) {
+                          final response = await http.get(Uri.parse(downloadUrl));
+                          if (response.statusCode == 200) {
+                              await _statsBox.put(key, response.body);
+                              await _statsBox.put('$key-md5', remoteMd5);
+                              _log.fine('Successfully downloaded and stored stats for $key');
+                          } else {
+                              _log.warning('Failed to download stats for $key, status: ${response.statusCode}');
+                          }
+                      }
+                  }
+              }
+          } catch (e) {
+              _log.warning('Failed to list or download stats from cloud', e);
+          }
+
           _log.info('Successfully synced stats to cloud');
       } catch (e) {
           _log.severe('Failed to sync stats to cloud', e);
