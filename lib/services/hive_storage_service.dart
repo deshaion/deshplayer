@@ -5,8 +5,16 @@ import '../models/track.dart';
 import '../models/playback_state.dart';
 import '../models/settings.dart';
 import 'mock_media_service.dart';
+import 'package:logging/logging.dart';
 
 class HiveStorageService {
+  final _log = Logger('HiveStorageService');
+
+  // Singleton pattern
+  static final HiveStorageService _instance = HiveStorageService._internal();
+  factory HiveStorageService() => _instance;
+  HiveStorageService._internal();
+
   static const String playlistsBoxName = 'playlists';
   static const String tracksBoxName = 'tracks';
   static const String playbackStateBoxName = 'playback_states';
@@ -20,14 +28,17 @@ class HiveStorageService {
   late Box<String> historyBox;
 
   Future<void> init() async {
+    _log.info('Initializing Hive storage');
     await Hive.initFlutter();
-    Hive.registerAdapter(DurationAdapter());
 
+    _log.fine('Registering Hive adapters');
+    Hive.registerAdapter(DurationAdapter());
     Hive.registerAdapter(TrackAdapter());
     Hive.registerAdapter(PlaylistAdapter());
     Hive.registerAdapter(PlaybackStateAdapter());
     Hive.registerAdapter(AppSettingsAdapter());
 
+    _log.fine('Opening Hive boxes');
     playlistsBox = await Hive.openBox<Playlist>(playlistsBoxName);
     tracksBox = await Hive.openBox<Track>(tracksBoxName);
     playbackStateBox = await Hive.openBox<PlaybackState>(playbackStateBoxName);
@@ -36,12 +47,16 @@ class HiveStorageService {
 
     // Seed mock data if empty
     if (playlistsBox.isEmpty && tracksBox.isEmpty) {
+      _log.info('Hive boxes are empty, seeding mock data');
       for (var t in MockMediaService.tracks) {
         await tracksBox.put(t.id, t);
       }
       for (var p in MockMediaService.playlists) {
         await playlistsBox.put(p.id, p);
       }
+      _log.info('Mock data seeded successfully');
+    } else {
+      _log.fine('Hive boxes initialized successfully');
     }
   }
 
