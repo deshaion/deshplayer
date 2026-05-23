@@ -5,6 +5,7 @@ import '../../../models/cloud_node.dart';
 import '../../../models/track.dart';
 import '../../../models/playlist.dart';
 import '../../../services/hive_storage_service.dart';
+import 'package:logging/logging.dart';
 
 class CloudImportPage extends StatefulWidget {
   final Playlist playlist;
@@ -15,6 +16,7 @@ class CloudImportPage extends StatefulWidget {
 }
 
 class _CloudImportPageState extends State<CloudImportPage> {
+  final _log = Logger('CloudImportPage');
   final CloudMediaService _cloudMediaService = CloudMediaService();
   CloudProvider? _selectedProvider;
   String _currentPath = '';
@@ -41,7 +43,13 @@ class _CloudImportPageState extends State<CloudImportPage> {
   }
 
   Future<void> _loadPath(String path) async {
-    if (_selectedProvider == null) return;
+    if (_selectedProvider == null) {
+      _log.warning('Attempted to load path without selected provider');
+      return;
+    }
+
+    _log.info('Loading path: $path on provider: ${_selectedProvider!.id}');
+
     setState(() {
       _isLoading = true;
       _currentPath = path;
@@ -49,11 +57,13 @@ class _CloudImportPageState extends State<CloudImportPage> {
 
     try {
       final nodes = await _selectedProvider!.listPath(path);
+      _log.fine('Loaded ${nodes.length} nodes from $path');
       setState(() {
         _nodes = nodes;
         _isLoading = false;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _log.severe('Error loading path: $path', e, stackTrace);
       setState(() {
         _isLoading = false;
       });
@@ -64,6 +74,7 @@ class _CloudImportPageState extends State<CloudImportPage> {
   }
 
   Future<void> _importNode(CloudNode node) async {
+    _log.info('Starting import for node: ${node.path} (isDir: ${node.isDir})');
     setState(() {
       _isLoading = true;
     });
@@ -75,10 +86,12 @@ class _CloudImportPageState extends State<CloudImportPage> {
         await _importSingleFile(node);
       }
 
+      _log.info('Import complete for node: ${node.path}');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Import complete')));
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _log.severe('Import error for node: ${node.path}', e, stackTrace);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Import error: $e')));
       }
@@ -147,6 +160,7 @@ class _CloudImportPageState extends State<CloudImportPage> {
 
     // Check if it's audio
     if (node.mimeType == null || !node.mimeType!.startsWith('audio/')) {
+        _log.fine('Skipping non-audio file: ${node.path} (mimeType: ${node.mimeType})');
         return; // skip non-audio
     }
 
@@ -168,7 +182,10 @@ class _CloudImportPageState extends State<CloudImportPage> {
       }
     }
 
-    if (pathsToCheck.contains(fullCloudPath)) return; // skip duplicate
+    if (pathsToCheck.contains(fullCloudPath)) {
+      _log.fine('Skipping duplicate file: $fullCloudPath');
+      return; // skip duplicate
+    }
 
     final newTrack = Track(
        id: DateTime.now().millisecondsSinceEpoch.toString() + node.name, // unique enough
@@ -182,6 +199,8 @@ class _CloudImportPageState extends State<CloudImportPage> {
     p.trackIds.add(newTrack.id);
     pathsToCheck.add(fullCloudPath);
     await storage.savePlaylist(p);
+
+    _log.info('Successfully imported file: $fullCloudPath');
   }
 
   void _goUp() {
