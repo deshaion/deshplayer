@@ -4,6 +4,7 @@ import 'services/hive_storage_service.dart';
 import 'services/player_provider.dart';
 import 'ui/app.dart';
 import 'package:logging/logging.dart';
+import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 
 void main() async {
   Logger.root.level = Level.ALL;
@@ -13,6 +14,14 @@ void main() async {
   });
 
   WidgetsFlutterBinding.ensureInitialized();
+
+  JustAudioMediaKit.ensureInitialized(
+    linux: true,
+    windows: false,
+    android: false,
+    iOS: false,
+    macOS: false,
+  );
 
   final storageService = HiveStorageService();
   await storageService.init();
