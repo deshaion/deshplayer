@@ -5,6 +5,7 @@ import '../../../models/cloud_node.dart';
 import '../../../models/track.dart';
 import '../../../models/playlist.dart';
 import '../../../services/hive_storage_service.dart';
+import '../../../services/metadata_service.dart';
 import 'package:logging/logging.dart';
 
 class CloudImportPage extends StatefulWidget {
@@ -18,6 +19,7 @@ class CloudImportPage extends StatefulWidget {
 class _CloudImportPageState extends State<CloudImportPage> {
   final _log = Logger('CloudImportPage');
   final CloudMediaService _cloudMediaService = CloudMediaService();
+  final MetadataService _metadataService = MetadataService();
   CloudProvider? _selectedProvider;
   String _currentPath = '';
   List<CloudNode> _nodes = [];
@@ -112,7 +114,6 @@ class _CloudImportPageState extends State<CloudImportPage> {
 
     // We get storageService once
     final storageService = HiveStorageService();
-    // Assuming HiveStorageService has already been initialized, we don't call init here
 
     final p = storageService.getPlaylist(widget.playlist.id);
     final Set<String> existingCloudPaths = {};
@@ -128,6 +129,10 @@ class _CloudImportPageState extends State<CloudImportPage> {
     while(dirsToProcess.isNotEmpty) {
        final currentDir = dirsToProcess.removeAt(0);
 
+       // Pre-fetch metadata for the directory
+       final localCacheDir = await _cloudMediaService.getCacheDir();
+       final cloudMetadata = await _metadataService.getCloudMetadata(_selectedProvider!, currentDir, localCacheDir);
+
        bool hasMore = true;
        int offset = 0;
        int limit = 100;
@@ -142,7 +147,7 @@ class _CloudImportPageState extends State<CloudImportPage> {
              if (n.isDir) {
                 dirsToProcess.add(n.path);
              } else {
-                await _importSingleFile(n, storageService, existingCloudPaths);
+                await _importSingleFile(n, storageService, existingCloudPaths, cloudMetadata);
              }
            }
            if (nodes.length < limit) {
@@ -155,7 +160,7 @@ class _CloudImportPageState extends State<CloudImportPage> {
     }
   }
 
-  Future<void> _importSingleFile(CloudNode node, [HiveStorageService? storageService, Set<String>? existingCloudPaths]) async {
+  Future<void> _importSingleFile(CloudNode node, [HiveStorageService? storageService, Set<String>? existingCloudPaths, Map<String, dynamic>? folderMetadata]) async {
     if (_selectedProvider == null) return;
 
     // Check if it's audio
@@ -187,11 +192,29 @@ class _CloudImportPageState extends State<CloudImportPage> {
       return; // skip duplicate
     }
 
+    String title = node.name;
+    String? artist;
+    Duration duration = const Duration(minutes: 0);
+
+    // Apply metadata if found
+    if (folderMetadata != null) {
+        final fileName = node.path.split('/').last;
+        final fileMeta = folderMetadata[fileName];
+        if (fileMeta != null) {
+            title = fileMeta['title'] ?? title;
+            artist = fileMeta['artist'];
+            if (fileMeta['durationMs'] != null) {
+                duration = Duration(milliseconds: fileMeta['durationMs']);
+            }
+        }
+    }
+
     final newTrack = Track(
        id: DateTime.now().millisecondsSinceEpoch.toString() + node.name, // unique enough
        cloudPath: fullCloudPath,
-       title: node.name,
-       duration: const Duration(minutes: 0), // Could try to parse metadata later
+       title: title,
+       artist: artist,
+       duration: duration,
        fileSize: node.size,
     );
 

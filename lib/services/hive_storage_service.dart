@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import '../models/duration_adapter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/playlist.dart';
@@ -29,7 +31,19 @@ class HiveStorageService {
 
   Future<void> init() async {
     _log.info('Initializing Hive storage');
-    await Hive.initFlutter();
+
+    String? path;
+    if (Platform.isLinux) {
+      final home = Platform.environment['HOME'];
+      final dir = Directory('$home/.deshplayer');
+      if (!dir.existsSync()) {
+        dir.createSync(recursive: true);
+      }
+      path = dir.path;
+      Hive.init(path);
+    } else {
+      await Hive.initFlutter();
+    }
 
     _log.fine('Registering Hive adapters');
     Hive.registerAdapter(DurationAdapter());

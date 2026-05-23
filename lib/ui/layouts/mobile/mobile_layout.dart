@@ -6,6 +6,9 @@ import '../../pages/manage_playlists_page.dart';
 import '../../components/playlist_dialogs.dart';
 import 'mobile_control_panel.dart';
 import '../../pages/settings_page.dart';
+import '../../pages/queue/queue_page.dart';
+import '../../pages/stats/stats_page.dart';
+import '../../widgets/track_list_tile.dart';
 import '../../pages/import/cloud_import_page.dart';
 
 class MobileLayout extends StatefulWidget {
@@ -87,12 +90,12 @@ class _MobileLayoutState extends State<MobileLayout> {
             ListTile(
               leading: const Icon(Icons.bar_chart),
               title: const Text('Stats'),
-              onTap: () {},
+              onTap: () { Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StatsPage())); },
             ),
             ListTile(
               leading: const Icon(Icons.queue),
               title: const Text('Queue'),
-              onTap: () {},
+              onTap: () { Navigator.of(context).push(MaterialPageRoute(builder: (_) => const QueuePage())); },
             ),
             ListTile(
               leading: const Icon(Icons.settings),
@@ -238,22 +241,11 @@ class _MobileLayoutState extends State<MobileLayout> {
                         if (track == null) return const SizedBox.shrink();
 
                         final isSelected = track.id == currentTrack?.id;
-                        return ListTile(
-                          leading: isSelected
-                              ? Icon(Icons.volume_up, color: Theme.of(context).colorScheme.primary)
-                              : Text('${index + 1}', style: const TextStyle(color: Colors.grey)),
-                          title: Text(
-                            track.title != null && track.title!.isNotEmpty ? track.title! : track.cloudPath.split('/').last.split('.').first,
-                            style: TextStyle(
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                              color: isSelected ? Theme.of(context).colorScheme.primary : null,
-                            ),
-                          ),
-                          subtitle: Text(track.artist ?? 'Unknown'),
-                          trailing: Text(
-                            '${track.duration.inMinutes}:${(track.duration.inSeconds % 60).toString().padLeft(2, '0')}',
-                            style: const TextStyle(color: Colors.grey),
-                          ),
+                        return TrackListTile(
+                          track: track,
+                          index: index,
+                          playlist: selectedPlaylist,
+                          isSelected: isSelected,
                           onTap: () {
                             if (selectedPlaylist.id == player.currentPlaylist?.id) {
                               player.playTrackDirectly(track);

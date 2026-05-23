@@ -31,6 +31,22 @@ class CloudMediaService {
     }
   }
 
+  Future<Directory> getCacheDir() async {
+    Directory baseDir;
+    if (Platform.isLinux) {
+      final home = Platform.environment['HOME'];
+      baseDir = Directory('$home/.deshplayer');
+    } else {
+      baseDir = await getApplicationDocumentsDirectory();
+    }
+
+    final cacheDir = Directory('${baseDir.path}/music_cache');
+    if (!cacheDir.existsSync()) {
+      cacheDir.createSync(recursive: true);
+    }
+    return cacheDir;
+  }
+
   Future<String> downloadAndCacheTrack(Track track) async {
     _log.info('Requesting download for track: ${track.id} from ${track.cloudPath}');
     // Determine provider from cloudPath if possible, or assume format "providerId://path"
@@ -64,13 +80,19 @@ class CloudMediaService {
       throw Exception('No download URL obtained');
     }
 
-    final dir = await getApplicationDocumentsDirectory();
-    final cacheDir = Directory('${dir.path}/music_cache');
-    if (!cacheDir.existsSync()) {
-      cacheDir.createSync(recursive: true);
+    final cacheDir = await getCacheDir();
+
+    String ext = '.mp3';
+    final parts = path.split('/');
+    if (parts.isNotEmpty) {
+      final name = parts.last;
+      final extIdx = name.lastIndexOf('.');
+      if (extIdx != -1) {
+        ext = name.substring(extIdx);
+      }
     }
 
-    final file = File('${cacheDir.path}/${track.id}.mp3');
+    final file = File('${cacheDir.path}/${track.id}$ext');
     if (!file.existsSync()) {
       _log.info('Downloading file to cache: ${file.path}');
       // Download actual file using streaming
@@ -96,13 +118,22 @@ class CloudMediaService {
   Future<String> _mockDownload(Track track) async {
     _log.info('Mock downloading track: ${track.id}');
     await Future.delayed(const Duration(seconds: 1));
-    final dir = await getApplicationDocumentsDirectory();
-    final cacheDir = Directory('${dir.path}/music_cache');
-    if (!cacheDir.existsSync()) {
-      cacheDir.createSync(recursive: true);
+    final cacheDir = await getCacheDir();
+
+    String ext = '.mp3';
+    final schemeIdx = track.cloudPath.indexOf('://');
+    String path = track.cloudPath;
+    if (schemeIdx != -1) path = track.cloudPath.substring(schemeIdx + 3);
+    final parts = path.split('/');
+    if (parts.isNotEmpty) {
+      final name = parts.last;
+      final extIdx = name.lastIndexOf('.');
+      if (extIdx != -1) {
+        ext = name.substring(extIdx);
+      }
     }
 
-    final file = File('${cacheDir.path}/${track.id}.mp3');
+    final file = File('${cacheDir.path}/${track.id}$ext');
     if (!file.existsSync()) {
         file.writeAsBytesSync([0]);
     }

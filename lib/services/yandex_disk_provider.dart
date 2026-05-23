@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:convert';
 import 'dart:developer' as developer;
 import 'package:http/http.dart' as http;
@@ -117,6 +118,40 @@ class YandexDiskProvider implements CloudProvider {
       return data['href'];
     } else {
       throw Exception('Failed to get download URL: ${response.statusCode} - ${response.body}');
+    }
+  }
+
+  @override
+  Future<void> uploadFile(String path, File file) async {
+    final token = await _getToken();
+    if (token == null) throw Exception('Not connected');
+
+    // 1. Get upload URL
+    final getUploadUrlUri = Uri.parse('$_baseUrl/upload').replace(queryParameters: {
+      'path': path,
+      'overwrite': 'true',
+    });
+
+    final uploadUrlResponse = await http.get(
+      getUploadUrlUri,
+      headers: {'Authorization': 'OAuth $token'},
+    );
+
+    if (uploadUrlResponse.statusCode != 200) {
+      throw Exception('Failed to get upload URL: ${uploadUrlResponse.statusCode} - ${uploadUrlResponse.body}');
+    }
+
+    final uploadUrlData = json.decode(uploadUrlResponse.body);
+    final uploadUrl = uploadUrlData['href'];
+
+    // 2. Upload file to URL
+    final bytes = await file.readAsBytes();
+    final uploadRequest = http.Request('PUT', Uri.parse(uploadUrl));
+    uploadRequest.bodyBytes = bytes;
+    final uploadResponse = await uploadRequest.send();
+
+    if (uploadResponse.statusCode != 201 && uploadResponse.statusCode != 202) {
+      throw Exception('Failed to upload file: ${uploadResponse.statusCode}');
     }
   }
 }

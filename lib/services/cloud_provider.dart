@@ -1,3 +1,4 @@
+import 'dart:io';
 import '../models/cloud_node.dart';
 
 abstract class CloudProvider {
@@ -10,4 +11,5 @@ abstract class CloudProvider {
 
   Future<List<CloudNode>> listPath(String path, {int limit = 100, int offset = 0});
   Future<String?> getDownloadUrl(String path);
+  Future<void> uploadFile(String path, File file);
 }

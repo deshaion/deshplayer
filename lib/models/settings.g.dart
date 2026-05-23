@@ -23,13 +23,14 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       repeatMode: fields[3] as int,
       volume: fields[4] as double,
       lastActivePlaylistId: fields[5] as String?,
+      cloudStatsFolder: fields[6] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, AppSettings obj) {
     writer
-      ..writeByte(6)
+      ..writeByte(7)
       ..writeByte(0)
       ..write(obj.maxCacheSizeBytes)
       ..writeByte(1)
@@ -41,7 +42,9 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       ..writeByte(4)
       ..write(obj.volume)
       ..writeByte(5)
-      ..write(obj.lastActivePlaylistId);
+      ..write(obj.lastActivePlaylistId)
+      ..writeByte(6)
+      ..write(obj.cloudStatsFolder);
   }
 
   @override
