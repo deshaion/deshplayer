@@ -136,7 +136,6 @@ class PlayerProvider extends ChangeNotifier {
     _audioService.player.durationStream.listen((dur) {
       if (dur != null) {
         _duration = dur;
-        _log.info('Duration listen: $dur');
         notifyListeners();
       }
     });
@@ -223,34 +222,26 @@ class PlayerProvider extends ChangeNotifier {
     _settings.lastActivePlaylistId = playlist.id;
     _storageService.saveSettings(_settings);
 
+    notifyListeners();
+    
     if (startTrack != null) {
       _currentTrack = startTrack;
-    } else {
-      if (playlist.trackIds.isNotEmpty) {
-        final state = _storageService.getPlaybackState(playlist.id);
-        if (state != null && state.currentTrackId != null) {
-          _currentTrack = _storageService.getTrack(state.currentTrackId!);
-        } else {
-          _currentTrack = _storageService.getTrack(playlist.trackIds.first);
-        }
-      } else {
-        _currentTrack = null;
-      }
-    }
 
-    _queue.clear();
-    _fillQueue();
-    notifyListeners();
+      _queue.clear();
+      _fillQueue();
+    
+      notifyListeners();
 
-    if (_currentTrack != null) {
-      try {
-        await _audioService.playTrack(_currentTrack!);
-        final state = _storageService.getPlaybackState(playlist.id);
-        if (state != null) {
-          await _audioService.seek(state.position);
+      if (_currentTrack != null) {
+        try {
+          await _audioService.playTrack(_currentTrack!);
+          final state = _storageService.getPlaybackState(playlist.id);
+          if (state != null) {
+            await _audioService.seek(state.position);
+          }
+        } catch (e) {
+          _handlePlaybackError(e);
         }
-      } catch (e) {
-        _handlePlaybackError(e);
       }
     }
   }
