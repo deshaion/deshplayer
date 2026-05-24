@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../services/cloud_media_service.dart';
 import '../../services/hive_storage_service.dart';
 import '../../models/settings.dart';
@@ -22,6 +23,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late TextEditingController _statsFolderController;
   late TextEditingController _maxCacheSizeController;
   String? _selectedStatsProviderId;
+  String _appVersion = '';
 
   @override
   void initState() {
@@ -31,6 +33,16 @@ class _SettingsPageState extends State<SettingsPage> {
     _maxCacheSizeController = TextEditingController(text: CacheSizeParser.format(_settings.maxCacheSizeBytes));
     _selectedStatsProviderId = _settings.cloudStatsProviderId;
     _checkConnections();
+    _initPackageInfo();
+  }
+
+  Future<void> _initPackageInfo() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) {
+      setState(() {
+        _appVersion = info.version;
+      });
+    }
   }
 
   @override
@@ -227,7 +239,17 @@ class _SettingsPageState extends State<SettingsPage> {
                       onPressed: _saveSettings,
                       child: const Text('Save Settings'),
                   ),
-                )
+                ),
+                if (_appVersion.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 24.0),
+                    child: Center(
+                      child: Text(
+                        'App Version: $_appVersion',
+                        style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      ),
+                    ),
+                  ),
               ],
             ),
     );
