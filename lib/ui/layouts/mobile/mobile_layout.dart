@@ -34,6 +34,8 @@ class MobileLayout extends StatefulWidget {
 class _MobileLayoutState extends State<MobileLayout> {
   String _searchQuery = '';
   final Map<String, String> _searchCache = {};
+  bool _isSearchExpanded = false;
+  final TextEditingController _searchController = TextEditingController();
 
   void _showPlaylistMenu(BuildContext context, Offset position, Playlist playlist) async {
     final value = await showMenu<String>(
@@ -64,6 +66,12 @@ class _MobileLayoutState extends State<MobileLayout> {
         widget.onDeletePlaylist(playlist.id);
       }
     }
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -206,59 +214,87 @@ class _MobileLayoutState extends State<MobileLayout> {
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Row(
-                  children: [
-                    const Icon(Icons.list),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            selectedPlaylist.name,
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                  children: _isSearchExpanded
+                      ? [
+                          IconButton(
+                            icon: const Icon(Icons.arrow_back),
+                            onPressed: () {
+                              setState(() {
+                                _isSearchExpanded = false;
+                                _searchQuery = '';
+                                _searchController.clear();
+                              });
+                            },
                           ),
-                          Text(
-                            '${selectedPlaylist.trackIds.length} tracks',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                          Expanded(
+                            child: TextField(
+                              controller: _searchController,
+                              autofocus: true,
+                              decoration: InputDecoration(
+                                hintText: 'Search...',
+                                border: InputBorder.none,
+                                suffixIcon: _searchQuery.isNotEmpty
+                                    ? IconButton(
+                                        icon: const Icon(Icons.close),
+                                        onPressed: () {
+                                          setState(() {
+                                            _searchController.clear();
+                                            _searchQuery = '';
+                                          });
+                                        },
+                                      )
+                                    : null,
+                              ),
+                              onChanged: (value) {
+                                setState(() {
+                                  _searchQuery = value;
+                                });
+                              },
+                            ),
+                          ),
+                        ]
+                      : [
+                          const Icon(Icons.list),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  selectedPlaylist.name,
+                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                                ),
+                                Text(
+                                  '${selectedPlaylist.trackIds.length} tracks',
+                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.search),
+                            onPressed: () {
+                              setState(() {
+                                _isSearchExpanded = true;
+                              });
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (context) => CloudImportPage(playlist: selectedPlaylist),
+                                ),
+                              ).then((_) {
+                                 // Trigger rebuild to show new tracks
+                                 setState((){});
+                              });
+                            },
+                            icon: const Icon(Icons.cloud_download, size: 16),
+                            label: const Text('Import'),
                           ),
                         ],
-                      ),
-                    ),
-                    SizedBox(
-                      width: 120,
-                      child: TextField(
-                        decoration: InputDecoration(
-                          hintText: 'Search...',
-                          prefixIcon: const Icon(Icons.search, size: 16),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8.0),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 8),
-                        ),
-                        style: const TextStyle(fontSize: 14),
-                        onChanged: (value) {
-                          setState(() {
-                            _searchQuery = value;
-                          });
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => CloudImportPage(playlist: selectedPlaylist),
-                          ),
-                        ).then((_) {
-                           // Trigger rebuild to show new tracks
-                           setState((){});
-                        });
-                      },
-                      icon: const Icon(Icons.cloud_download, size: 16),
-                      label: const Text('Import'),
-                    )
-                  ],
                 ),
               ),
             const Divider(height: 1),
