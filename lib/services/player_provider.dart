@@ -31,6 +31,8 @@ class PlayerProvider extends ChangeNotifier {
 
   // Stats tracking
   Duration _lastReportedPosition = Duration.zero;
+  Duration _accumulatedTime = Duration.zero;
+  bool _statsRecorded = false;
 
   // Error handling
   final StreamController<String> _errorController =
@@ -70,6 +72,8 @@ class PlayerProvider extends ChangeNotifier {
         if (state != null && state.currentTrackId != null) {
           _currentTrack = _storageService.getTrack(state.currentTrackId!);
           _position = state.position;
+          _accumulatedTime = state.accumulatedTime;
+          _statsRecorded = state.statsRecorded;
 
           _fillQueue();
 
@@ -131,33 +135,19 @@ class PlayerProvider extends ChangeNotifier {
       notifyListeners();
 
       if (_currentPlaylist != null && _currentTrack != null) {
-        var state = _storageService.getPlaybackState(_currentPlaylist!.id);
-        if (state == null) {
-          state = pstate.PlaybackState(
-            playlistId: _currentPlaylist!.id,
-            currentTrackId: _currentTrack!.id,
-          );
-          _storageService.savePlaybackState(state);
-        }
-
         // Calculate time delta
         final diff = pos - _lastReportedPosition;
         if (diff > Duration.zero && diff < const Duration(seconds: 2)) {
-          state.accumulatedTime += diff;
+          _accumulatedTime += diff;
 
           // Check if we should record a play
-          if (!state.statsRecorded &&
+          if (!_statsRecorded &&
               _currentTrack!.duration.inSeconds > 0 &&
-              state.accumulatedTime.inSeconds >=
+              _accumulatedTime.inSeconds >=
                   _currentTrack!.duration.inSeconds / 2) {
             StatsService().recordPlay(_currentTrack!);
-            state.statsRecorded = true;
+            _statsRecorded = true;
           }
-
-          // We intentionally do NOT call _storageService.savePlaybackState(state) here.
-          // The `state` object is modified in memory. It will be persisted to disk
-          // below by `_saveCurrentState()` which is throttled to every 5 seconds,
-          // preventing massive disk I/O spam.
         }
       }
 
@@ -261,14 +251,26 @@ class PlayerProvider extends ChangeNotifier {
     _storageService.saveSettings(_settings);
 
     if (startTrack != null) {
+      if (_currentTrack?.id != startTrack.id) {
+         _resetStatsForNewTrack();
+      }
       _currentTrack = startTrack;
     } else {
       if (playlist.trackIds.isNotEmpty) {
         final state = _storageService.getPlaybackState(playlist.id);
         if (state != null && state.currentTrackId != null) {
+          if (_currentTrack?.id != state.currentTrackId) {
+             _resetStatsForNewTrack();
+          }
           _currentTrack = _storageService.getTrack(state.currentTrackId!);
+          _accumulatedTime = state.accumulatedTime;
+          _statsRecorded = state.statsRecorded;
         } else {
-          _currentTrack = _storageService.getTrack(playlist.trackIds.first);
+          final firstTrackId = playlist.trackIds.first;
+          if (_currentTrack?.id != firstTrackId) {
+             _resetStatsForNewTrack();
+          }
+          _currentTrack = _storageService.getTrack(firstTrackId);
         }
       } else {
         _currentTrack = null;
@@ -283,7 +285,7 @@ class PlayerProvider extends ChangeNotifier {
       try {
         await _audioService.playTrack(_currentTrack!);
         final state = _storageService.getPlaybackState(playlist.id);
-        if (state != null) {
+        if (state != null && state.currentTrackId == _currentTrack!.id) {
           await _audioService.seek(state.position);
         }
       } catch (e) {
@@ -293,14 +295,8 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   void _resetStatsForNewTrack() {
-    if (_currentPlaylist != null) {
-      final state = _storageService.getPlaybackState(_currentPlaylist!.id);
-      if (state != null) {
-        state.accumulatedTime = Duration.zero;
-        state.statsRecorded = false;
-        _storageService.savePlaybackState(state);
-      }
-    }
+    _accumulatedTime = Duration.zero;
+    _statsRecorded = false;
     _lastReportedPosition = Duration.zero;
   }
 
@@ -452,14 +448,12 @@ class PlayerProvider extends ChangeNotifier {
 
   void _saveCurrentState() {
     if (_currentPlaylist != null && _currentTrack != null) {
-      final existingState = _storageService.getPlaybackState(_currentPlaylist!.id);
-
       final state = pstate.PlaybackState(
         playlistId: _currentPlaylist!.id,
         currentTrackId: _currentTrack!.id,
         position: _position,
-        accumulatedTime: existingState?.accumulatedTime ?? Duration.zero,
-        statsRecorded: existingState?.statsRecorded ?? false,
+        accumulatedTime: _accumulatedTime,
+        statsRecorded: _statsRecorded,
       );
       _storageService.savePlaybackState(state);
     }
