@@ -232,6 +232,8 @@ class _MobileLayoutState extends State<MobileLayout> {
                               autofocus: true,
                               textAlignVertical: TextAlignVertical.center,
                               decoration: InputDecoration(
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(vertical: 10),
                                 hintText: 'Search...',
                                 border: InputBorder.none,
                                 suffixIcon: _searchQuery.isNotEmpty
