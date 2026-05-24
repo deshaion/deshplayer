@@ -6,6 +6,7 @@ import 'cloud_media_service.dart';
 import 'metadata_service.dart';
 import 'dart:async';
 import 'package:logging/logging.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 
 class AudioPlayerService {
   final _log = Logger('AudioPlayerService');
@@ -45,7 +46,17 @@ class AudioPlayerService {
           File(track.localCachePath!).existsSync()) {
         _log.fine('Playing from local cache: ${track.localCachePath}');
         // Play from cache
-        await player.setFilePath(track.localCachePath!);
+        await player.setAudioSource(
+          AudioSource.uri(
+            Uri.file(track.localCachePath!),
+            tag: MediaItem(
+              id: track.id,
+              album: 'DeshPlayer',
+              title: track.title ?? 'Unknown Track',
+              artist: track.artist ?? 'Unknown Artist',
+            ),
+          ),
+        );
         track.lastAccessed = DateTime.now();
         await storageService.saveTrack(track);
       } else {
@@ -58,7 +69,17 @@ class AudioPlayerService {
         track.lastAccessed = DateTime.now();
 
         try {
-          await player.setFilePath(localPath);
+          await player.setAudioSource(
+            AudioSource.uri(
+              Uri.file(localPath),
+              tag: MediaItem(
+                id: track.id,
+                album: 'DeshPlayer',
+                title: track.title ?? 'Unknown Track',
+                artist: track.artist ?? 'Unknown Artist',
+              ),
+            ),
+          );
           _log.fine('Successfully set file path: $localPath');
         } catch (e, stackTrace) {
           _log.warning(

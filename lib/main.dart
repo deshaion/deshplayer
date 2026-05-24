@@ -6,6 +6,7 @@ import 'services/player_provider.dart';
 import 'ui/app.dart';
 import 'package:logging/logging.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'models/app_log_record.dart';
 
 void main() async {
@@ -28,6 +29,12 @@ void main() async {
       time: record.time,
     ));
   });
+
+  await JustAudioBackground.init(
+    androidNotificationChannelId: 'com.ryanheise.bg_demo.channel.audio',
+    androidNotificationChannelName: 'Audio playback',
+    androidNotificationOngoing: true,
+  );
 
   JustAudioMediaKit.ensureInitialized(
     linux: true,
