@@ -9,6 +9,7 @@ import 'dart:async';
 import 'hive_storage_service.dart';
 import 'audio_player_service.dart';
 import 'package:logging/logging.dart';
+import 'stats_service.dart';
 
 class PlayerProvider extends ChangeNotifier {
   final _log = Logger('PlayerProvider');
@@ -27,6 +28,11 @@ class PlayerProvider extends ChangeNotifier {
   final List<Track> _history = [];
 
   DateTime _lastSaveTime = DateTime.now();
+
+  // Stats tracking
+  Duration _lastReportedPosition = Duration.zero;
+  Duration _accumulatedTime = Duration.zero;
+  bool _statsRecorded = false;
 
   // Error handling
   final StreamController<String> _errorController =
@@ -66,6 +72,8 @@ class PlayerProvider extends ChangeNotifier {
         if (state != null && state.currentTrackId != null) {
           _currentTrack = _storageService.getTrack(state.currentTrackId!);
           _position = state.position;
+          _accumulatedTime = state.accumulatedTime;
+          _statsRecorded = state.statsRecorded;
 
           _fillQueue();
 
@@ -125,6 +133,25 @@ class PlayerProvider extends ChangeNotifier {
     _audioService.player.positionStream.listen((pos) {
       _position = pos;
       notifyListeners();
+
+      if (_currentPlaylist != null && _currentTrack != null) {
+        // Calculate time delta
+        final diff = pos - _lastReportedPosition;
+        if (diff > Duration.zero && diff < const Duration(seconds: 2)) {
+          _accumulatedTime += diff;
+
+          // Check if we should record a play
+          if (!_statsRecorded &&
+              _currentTrack!.duration.inSeconds > 0 &&
+              _accumulatedTime.inSeconds >=
+                  _currentTrack!.duration.inSeconds / 2) {
+            StatsService().recordPlay(_currentTrack!);
+            _statsRecorded = true;
+          }
+        }
+      }
+
+      _lastReportedPosition = pos;
 
       // Throttle database writes to every 5 seconds
       if (DateTime.now().difference(_lastSaveTime).inSeconds >= 5) {
@@ -225,6 +252,9 @@ class PlayerProvider extends ChangeNotifier {
     notifyListeners();
     
     if (startTrack != null) {
+      if (_currentTrack?.id != startTrack.id) {
+         _resetStatsForNewTrack();
+      }
       _currentTrack = startTrack;
 
       _queue.clear();
@@ -235,10 +265,6 @@ class PlayerProvider extends ChangeNotifier {
       if (_currentTrack != null) {
         try {
           await _audioService.playTrack(_currentTrack!);
-          final state = _storageService.getPlaybackState(playlist.id);
-          if (state != null) {
-            await _audioService.seek(state.position);
-          }
         } catch (e) {
           _handlePlaybackError(e);
         }
@@ -246,9 +272,18 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
+  void _resetStatsForNewTrack() {
+    _accumulatedTime = Duration.zero;
+    _statsRecorded = false;
+    _lastReportedPosition = Duration.zero;
+  }
+
   Future<void> playTrackDirectly(Track track) async {
     if (_currentTrack != null) {
       _history.add(_currentTrack!);
+    }
+    if (_currentTrack?.id != track.id) {
+        _resetStatsForNewTrack();
     }
     _currentTrack = track;
     _queue.clear();
@@ -295,6 +330,9 @@ class PlayerProvider extends ChangeNotifier {
 
     if (_queue.isNotEmpty) {
       final nextTrack = _queue.removeAt(0);
+      if (_currentTrack?.id != nextTrack.id) {
+         _resetStatsForNewTrack();
+      }
       _currentTrack = nextTrack;
       _fillQueue();
       notifyListeners();
@@ -314,6 +352,9 @@ class PlayerProvider extends ChangeNotifier {
         _queue.insert(0, _currentTrack!);
       }
       final prevTrack = _history.removeLast();
+      if (_currentTrack?.id != prevTrack.id) {
+         _resetStatsForNewTrack();
+      }
       _currentTrack = prevTrack;
       notifyListeners();
       try {
@@ -329,6 +370,9 @@ class PlayerProvider extends ChangeNotifier {
       if (index > 0) {
         final prevTrack = _storageService.getTrack(ids[index - 1]);
         if (prevTrack != null) {
+          if (_currentTrack?.id != prevTrack.id) {
+             _resetStatsForNewTrack();
+          }
           _currentTrack = prevTrack;
           _queue.clear();
           _fillQueue();
@@ -386,6 +430,8 @@ class PlayerProvider extends ChangeNotifier {
         playlistId: _currentPlaylist!.id,
         currentTrackId: _currentTrack!.id,
         position: _position,
+        accumulatedTime: _accumulatedTime,
+        statsRecorded: _statsRecorded,
       );
       _storageService.savePlaybackState(state);
     }
