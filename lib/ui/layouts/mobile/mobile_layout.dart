@@ -230,6 +230,7 @@ class _MobileLayoutState extends State<MobileLayout> {
                             child: TextField(
                               controller: _searchController,
                               autofocus: true,
+                              textAlignVertical: TextAlignVertical.center,
                               decoration: InputDecoration(
                                 hintText: 'Search...',
                                 border: InputBorder.none,
