@@ -67,6 +67,16 @@ class _MusicVisualizerState extends State<MusicVisualizer> with SingleTickerProv
   @override
   void didUpdateWidget(MusicVisualizer oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    if (widget.barCount != oldWidget.barCount) {
+      // Re-initialize arrays if bar count changed (e.g. window resize)
+      _barHeights = List.generate(widget.barCount, (index) => 0.1);
+      _targetBarHeights = List.generate(widget.barCount, (index) => 0.1);
+      if (widget.isPlaying) {
+        _generateNewTargets();
+      }
+    }
+
     if (widget.isPlaying != oldWidget.isPlaying) {
       if (widget.isPlaying) {
         _generateNewTargets();
@@ -92,7 +102,9 @@ class _MusicVisualizerState extends State<MusicVisualizer> with SingleTickerProv
   Widget build(BuildContext context) {
     final color = widget.barColor ?? Theme.of(context).colorScheme.primary;
     final spacing = 2.0;
-    final barWidth = (widget.width - (spacing * (widget.barCount - 1))) / widget.barCount;
+    final horizontalPadding = 16.0; // 8.0 on left, 8.0 on right
+    final availableWidth = widget.width - horizontalPadding;
+    final barWidth = (availableWidth - (spacing * (widget.barCount - 1))) / widget.barCount;
 
     return Container(
       width: widget.width,
