@@ -199,6 +199,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       const SizedBox(width: 16),
                       Expanded(
                         child: DropdownButtonFormField<String?>(
+                          // ignore: deprecated_member_use
                           value: _selectedStatsProviderId,
                           decoration: const InputDecoration(
                             labelText: 'Provider',

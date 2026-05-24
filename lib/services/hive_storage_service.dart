@@ -1,5 +1,4 @@
 import 'dart:io';
-
 import '../models/duration_adapter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/playlist.dart';

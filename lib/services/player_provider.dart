@@ -1,5 +1,5 @@
 import 'dart:math';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
 import '../models/playlist.dart';
 import '../models/track.dart';
@@ -11,7 +11,7 @@ import 'audio_player_service.dart';
 import 'package:logging/logging.dart';
 import 'stats_service.dart';
 
-class PlayerProvider extends ChangeNotifier {
+class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final _log = Logger('PlayerProvider');
   final HiveStorageService _storageService;
   late AudioPlayerService _audioService;
@@ -41,9 +41,35 @@ class PlayerProvider extends ChangeNotifier {
   int _consecutiveFailures = 0;
   static const int _maxConsecutiveFailures = 20;
 
+  bool _isBackground = false;
+
   PlayerProvider(this._storageService) {
     _audioService = AudioPlayerService(_storageService);
+    WidgetsBinding.instance.addObserver(this);
     _init();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _isBackground = true;
+    } else if (state == AppLifecycleState.resumed) {
+      _isBackground = false;
+      notifyListeners();
+    }
+  }
+
+  @override
+  void notifyListeners() {
+    if (!_isBackground) {
+      super.notifyListeners();
+    }
   }
 
   Playlist? get currentPlaylist => _currentPlaylist;
@@ -104,7 +130,9 @@ class PlayerProvider extends ChangeNotifier {
         // This commonly happens with FLAC trailing garbage where ffmpeg expects another frame.
         if (_duration.inMilliseconds > 0 &&
             _position.inMilliseconds >= _duration.inMilliseconds - 1500) {
-          _log.info('Caught terminal decoding error near EOF. Treating as successful completion. Error: $e');
+          _log.info(
+            'Caught terminal decoding error near EOF. Treating as successful completion. Error: $e',
+          );
           _consecutiveFailures = 0; // Reset failures
 
           // Add a small delay to give media_kit/just_audio time to dispose the bad native instance gracefully
@@ -130,14 +158,24 @@ class PlayerProvider extends ChangeNotifier {
       }
     });
 
+    Duration lastProcessedPosition = Duration.zero;
+
     _audioService.player.positionStream.listen((pos) {
+      final step = (pos - lastProcessedPosition).inMilliseconds.abs();
+
+      // Throttle updates: Skip if the update is less than 1 second (1000ms)
+      if (step < 1000 && step > 0) {
+        return;
+      }
+      lastProcessedPosition = pos;
+
       _position = pos;
       notifyListeners();
 
       if (_currentPlaylist != null && _currentTrack != null) {
         // Calculate time delta
         final diff = pos - _lastReportedPosition;
-        if (diff > Duration.zero && diff < const Duration(seconds: 2)) {
+        if (diff > Duration.zero && diff < const Duration(seconds: 5)) {
           _accumulatedTime += diff;
 
           // Check if we should record a play
@@ -153,8 +191,8 @@ class PlayerProvider extends ChangeNotifier {
 
       _lastReportedPosition = pos;
 
-      // Throttle database writes to every 5 seconds
-      if (DateTime.now().difference(_lastSaveTime).inSeconds >= 5) {
+      // Throttle database writes to every 20 seconds
+      if (DateTime.now().difference(_lastSaveTime).inSeconds >= 20) {
         _saveCurrentState();
         _lastSaveTime = DateTime.now();
       }
@@ -250,16 +288,16 @@ class PlayerProvider extends ChangeNotifier {
     _storageService.saveSettings(_settings);
 
     notifyListeners();
-    
+
     if (startTrack != null) {
       if (_currentTrack?.id != startTrack.id) {
-         _resetStatsForNewTrack();
+        _resetStatsForNewTrack();
       }
       _currentTrack = startTrack;
 
       _queue.clear();
       _fillQueue();
-    
+
       notifyListeners();
 
       if (_currentTrack != null) {
@@ -283,7 +321,7 @@ class PlayerProvider extends ChangeNotifier {
       _history.add(_currentTrack!);
     }
     if (_currentTrack?.id != track.id) {
-        _resetStatsForNewTrack();
+      _resetStatsForNewTrack();
     }
     _currentTrack = track;
     _queue.clear();
@@ -331,7 +369,7 @@ class PlayerProvider extends ChangeNotifier {
     if (_queue.isNotEmpty) {
       final nextTrack = _queue.removeAt(0);
       if (_currentTrack?.id != nextTrack.id) {
-         _resetStatsForNewTrack();
+        _resetStatsForNewTrack();
       }
       _currentTrack = nextTrack;
       _fillQueue();
@@ -353,7 +391,7 @@ class PlayerProvider extends ChangeNotifier {
       }
       final prevTrack = _history.removeLast();
       if (_currentTrack?.id != prevTrack.id) {
-         _resetStatsForNewTrack();
+        _resetStatsForNewTrack();
       }
       _currentTrack = prevTrack;
       notifyListeners();
@@ -371,7 +409,7 @@ class PlayerProvider extends ChangeNotifier {
         final prevTrack = _storageService.getTrack(ids[index - 1]);
         if (prevTrack != null) {
           if (_currentTrack?.id != prevTrack.id) {
-             _resetStatsForNewTrack();
+            _resetStatsForNewTrack();
           }
           _currentTrack = prevTrack;
           _queue.clear();
