@@ -68,12 +68,55 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
                     barHeight: 4,
                     thumbRadius: 6,
                     timeLabelLocation: TimeLabelLocation.sides,
-                    timeLabelTextStyle: const TextStyle(fontSize: 12, color: Colors.grey),
+                    timeLabelTextStyle: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey,
+                    ),
                   ),
                 ),
-                // Bottom Row: Meta + Playback + Volume
+                // Bottom Row: Playback Controls + Meta + Volume
                 Row(
                   children: [
+                    // Playback Controls
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: Icon(
+                            Icons.shuffle,
+                            color: isShuffle
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.grey,
+                          ),
+                          onPressed: player.toggleShuffle,
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.skip_previous),
+                          onPressed: player.playPrevious,
+                        ),
+                        FloatingActionButton.small(
+                          elevation: 0,
+                          onPressed: player.togglePlayPause,
+                          child: Icon(
+                            isPlaying ? Icons.pause : Icons.play_arrow,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.skip_next),
+                          onPressed: player.playNext,
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
+                            color: repeatMode > 0
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.grey,
+                          ),
+                          onPressed: player.toggleRepeat,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 16),
                     // Meta (Title - Artist) - Expands to fill available space
                     Expanded(
                       child: Row(
@@ -81,19 +124,28 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
                           Flexible(
                             child: Text(
                               currentTrack?.title ?? 'No Track',
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          if (currentTrack?.artist != null && currentTrack!.artist!.isNotEmpty) ...[
+                          if (currentTrack?.artist != null &&
+                              currentTrack!.artist!.isNotEmpty) ...[
                             const SizedBox(width: 8),
-                            const Text('-', style: TextStyle(color: Colors.grey)),
+                            const Text(
+                              '-',
+                              style: TextStyle(color: Colors.grey),
+                            ),
                             const SizedBox(width: 8),
                             Flexible(
                               child: Text(
                                 currentTrack.artist!,
-                                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.grey[600]),
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.grey[600],
+                                    ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -102,64 +154,32 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
                         ],
                       ),
                     ),
-                    // Grouped Playback Controls + Volume + Menu
-                    Expanded(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          // Playback Controls
-                          Flexible(
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  IconButton(
-                                      icon: Icon(Icons.shuffle, color: isShuffle ? Theme.of(context).colorScheme.primary : Colors.grey),
-                                      onPressed: player.toggleShuffle),
-                                  IconButton(icon: const Icon(Icons.skip_previous), onPressed: player.playPrevious),
-                                  FloatingActionButton.small(
-                                    elevation: 0,
-                                    onPressed: player.togglePlayPause,
-                                    child: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
-                                  ),
-                                  IconButton(icon: const Icon(Icons.skip_next), onPressed: player.playNext),
-                                  IconButton(
-                                      icon: Icon(repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
-                                          color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
-                                      onPressed: player.toggleRepeat),
-                                ],
-                              ),
-                            ),
+                    const SizedBox(width: 16),
+                    // Volume + Menu
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 150),
+                          child: TriangleVolumeSlider(
+                            volume: player.settings.volume,
+                            onChanged: player.setVolume,
                           ),
-                          const SizedBox(width: 16),
-                          // Volume + Menu
-                          Flexible(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                Flexible(
-                                  child: ConstrainedBox(
-                                    constraints: const BoxConstraints(maxWidth: 150),
-                                    child: TriangleVolumeSlider(
-                                      volume: player.settings.volume,
-                                      onChanged: player.setVolume,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                IconButton(
-                                  key: _iconKey,
-                                  icon: const Icon(Icons.more_vert, color: Colors.grey),
-                                  onPressed: currentTrack != null
-                                      ? () => _showTrackMenu(context, player, currentTrack, _iconKey)
-                                      : null,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          key: _iconKey,
+                          icon: const Icon(Icons.more_vert, color: Colors.grey),
+                          onPressed: currentTrack != null
+                              ? () => _showTrackMenu(
+                                  context,
+                                  player,
+                                  currentTrack,
+                                  _iconKey,
+                                )
+                              : null,
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -211,7 +231,10 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
                     barHeight: 4,
                     thumbRadius: 6,
                     timeLabelLocation: TimeLabelLocation.sides,
-                    timeLabelTextStyle: const TextStyle(fontSize: 12, color: Colors.grey),
+                    timeLabelTextStyle: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey,
+                    ),
                   ),
                 ),
                 // Middle Row: Meta (Title - Artist) full width
@@ -222,19 +245,25 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
                       Flexible(
                         child: Text(
                           currentTrack?.title ?? 'No Track',
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.bold),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      if (currentTrack?.artist != null && currentTrack!.artist!.isNotEmpty) ...[
+                      if (currentTrack?.artist != null &&
+                          currentTrack!.artist!.isNotEmpty) ...[
                         const SizedBox(width: 8),
                         const Text('-', style: TextStyle(color: Colors.grey)),
                         const SizedBox(width: 8),
                         Flexible(
                           child: Text(
                             currentTrack.artist!,
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.grey[600]),
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey[600],
+                                ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -254,19 +283,40 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
                         child: Row(
                           children: [
                             IconButton(
-                                icon: Icon(Icons.shuffle, color: isShuffle ? Theme.of(context).colorScheme.primary : Colors.grey),
-                                onPressed: player.toggleShuffle),
-                            IconButton(icon: const Icon(Icons.skip_previous), onPressed: player.playPrevious),
+                              icon: Icon(
+                                Icons.shuffle,
+                                color: isShuffle
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Colors.grey,
+                              ),
+                              onPressed: player.toggleShuffle,
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.skip_previous),
+                              onPressed: player.playPrevious,
+                            ),
                             FloatingActionButton.small(
                               elevation: 0,
                               onPressed: player.togglePlayPause,
-                              child: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+                              child: Icon(
+                                isPlaying ? Icons.pause : Icons.play_arrow,
+                              ),
                             ),
-                            IconButton(icon: const Icon(Icons.skip_next), onPressed: player.playNext),
                             IconButton(
-                                icon: Icon(repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
-                                    color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
-                                onPressed: player.toggleRepeat),
+                              icon: const Icon(Icons.skip_next),
+                              onPressed: player.playNext,
+                            ),
+                            IconButton(
+                              icon: Icon(
+                                repeatMode == 2
+                                    ? Icons.repeat_one
+                                    : Icons.repeat,
+                                color: repeatMode > 0
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Colors.grey,
+                              ),
+                              onPressed: player.toggleRepeat,
+                            ),
                           ],
                         ),
                       ),
@@ -288,9 +338,17 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
                           const SizedBox(width: 8),
                           IconButton(
                             key: _iconKey,
-                            icon: const Icon(Icons.more_vert, color: Colors.grey),
+                            icon: const Icon(
+                              Icons.more_vert,
+                              color: Colors.grey,
+                            ),
                             onPressed: currentTrack != null
-                                ? () => _showTrackMenu(context, player, currentTrack, _iconKey)
+                                ? () => _showTrackMenu(
+                                    context,
+                                    player,
+                                    currentTrack,
+                                    _iconKey,
+                                  )
                                 : null,
                           ),
                         ],
@@ -306,22 +364,30 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
     );
   }
 
-  void _showTrackMenu(BuildContext context, PlayerProvider player, dynamic currentTrack, GlobalKey iconKey) async {
+  void _showTrackMenu(
+    BuildContext context,
+    PlayerProvider player,
+    dynamic currentTrack,
+    GlobalKey iconKey,
+  ) async {
     final storage = HiveStorageService();
 
-    final RenderBox? renderBox = iconKey.currentContext?.findRenderObject() as RenderBox?;
+    final RenderBox? renderBox =
+        iconKey.currentContext?.findRenderObject() as RenderBox?;
     final offset = renderBox?.localToGlobal(Offset.zero);
     final dx = offset?.dx ?? 1000;
     final dy = offset?.dy ?? 1000;
 
     final value = await showMenu<String>(
       context: context,
-      position: RelativeRect.fromLTRB(dx, dy - 50, dx + 50, dy), // Adjust to show above icon
+      position: RelativeRect.fromLTRB(
+        dx,
+        dy - 50,
+        dx + 50,
+        dy,
+      ), // Adjust to show above icon
       items: [
-        const PopupMenuItem(
-          value: 'playlist',
-          child: Text('Send to Playlist'),
-        ),
+        const PopupMenuItem(value: 'playlist', child: Text('Send to Playlist')),
       ],
     );
 
@@ -332,7 +398,11 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
     }
   }
 
-  void _showPlaylistDialog(BuildContext context, HiveStorageService storage, dynamic track) {
+  void _showPlaylistDialog(
+    BuildContext context,
+    HiveStorageService storage,
+    dynamic track,
+  ) {
     final playlists = storage.getPlaylists();
 
     showDialog(
@@ -354,10 +424,12 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
                       p.trackIds.add(track.id);
                       storage.savePlaylist(p);
                       ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Added to ${p.name}')));
+                        SnackBar(content: Text('Added to ${p.name}')),
+                      );
                     } else {
                       ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Already in ${p.name}')));
+                        SnackBar(content: Text('Already in ${p.name}')),
+                      );
                     }
                     Navigator.of(context).pop();
                   },
@@ -367,8 +439,9 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Cancel'))
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
           ],
         );
       },

@@ -199,56 +199,118 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                           children: [
                             Padding(
                               padding: const EdgeInsets.all(32.0),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  if (constraints.maxWidth >= 800) { // Keep Row layout if there is enough space
+                                    return Row(
                                       children: [
-                                        Text(
-                                          selectedPlaylist.name,
-                                          style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.bold),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                selectedPlaylist.name,
+                                                style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.bold),
+                                              ),
+                                              Text(
+                                                '${selectedPlaylist.trackIds.length} tracks',
+                                                style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.grey),
+                                              ),
+                                            ],
                                         ),
-                                        Text(
-                                          '${selectedPlaylist.trackIds.length} tracks',
-                                          style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.grey),
                                         ),
+                                        SizedBox(
+                                          width: 250,
+                                          child: TextField(
+                                            decoration: InputDecoration(
+                                              hintText: 'Search tracks...',
+                                              prefixIcon: const Icon(Icons.search),
+                                              border: OutlineInputBorder(
+                                                borderRadius: BorderRadius.circular(8.0),
+                                              ),
+                                              contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                                            ),
+                                            onChanged: (value) {
+                                              setState(() {
+                                                _searchQuery = value;
+                                              });
+                                            },
+                                          ),
+                                        ),
+                                        const SizedBox(width: 16),
+                                        ElevatedButton.icon(
+                                          onPressed: () {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (context) => CloudImportPage(playlist: selectedPlaylist),
+                                              ),
+                                            ).then((_) {
+                                               setState((){});
+                                            });
+                                          },
+                                          icon: const Icon(Icons.cloud_download),
+                                          label: const Text('Import Cloud Media'),
+                                        )
                                       ],
-                                    ),
-                                  ),
-                                  SizedBox(
-                                    width: 250,
-                                    child: TextField(
-                                      decoration: InputDecoration(
-                                        hintText: 'Search tracks...',
-                                        prefixIcon: const Icon(Icons.search),
-                                        border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(8.0),
-                                        ),
-                                        contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
-                                      ),
-                                      onChanged: (value) {
-                                        setState(() {
-                                          _searchQuery = value;
-                                        });
-                                      },
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  ElevatedButton.icon(
-                                    onPressed: () {
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (context) => CloudImportPage(playlist: selectedPlaylist),
-                                        ),
-                                      ).then((_) {
-                                         setState((){});
-                                      });
-                                    },
-                                    icon: const Icon(Icons.cloud_download),
-                                    label: const Text('Import Cloud Media'),
-                                  )
-                                ],
+                                    );
+                                  } else {
+                                     return Wrap(
+                                        crossAxisAlignment: WrapCrossAlignment.center,
+                                        spacing: 16.0,
+                                        runSpacing: 16.0,
+                                        children: [
+                                          SizedBox(
+                                            width: double.infinity,
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  selectedPlaylist.name,
+                                                  style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.bold),
+                                                ),
+                                                Text(
+                                                  '${selectedPlaylist.trackIds.length} tracks',
+                                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.grey),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          SizedBox(
+                                            width: 250,
+                                            child: TextField(
+                                              decoration: InputDecoration(
+                                                hintText: 'Search tracks...',
+                                                prefixIcon: const Icon(Icons.search),
+                                                border: OutlineInputBorder(
+                                                  borderRadius: BorderRadius.circular(8.0),
+                                                ),
+                                                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                                              ),
+                                              onChanged: (value) {
+                                                setState(() {
+                                                  _searchQuery = value;
+                                                });
+                                              },
+                                            ),
+                                          ),
+                                          ElevatedButton.icon(
+                                            onPressed: () {
+                                              Navigator.of(context).push(
+                                                MaterialPageRoute(
+                                                  builder: (context) => CloudImportPage(playlist: selectedPlaylist),
+                                                ),
+                                              ).then((_) {
+                                                 setState((){});
+                                              });
+                                            },
+                                            icon: const Icon(Icons.cloud_download),
+                                            label: const Text('Import Cloud Media'),
+                                          )
+                                        ],
+                                      );
+                                  }
+                                },
                               ),
                             ),
                             const Divider(height: 1),
