@@ -4,7 +4,6 @@ import '../models/track.dart';
 import 'hive_storage_service.dart';
 import 'cloud_media_service.dart';
 import 'metadata_service.dart';
-import 'stats_service.dart';
 import 'dart:async';
 import 'package:logging/logging.dart';
 
@@ -112,27 +111,22 @@ class AudioPlayerService {
   }
 
   Future<void> pause() async {
-    _log.info('Pausing playback');
     await player.pause();
   }
 
   Future<void> seek(Duration position) async {
-    _log.info('Seeking to position: $position');
     await player.seek(position);
   }
 
   Future<void> setVolume(double volume) async {
-    _log.fine('Setting volume to: $volume');
     await player.setVolume(volume);
   }
 
   Future<void> setLoopMode(LoopMode mode) async {
-    _log.info('Setting loop mode to: $mode');
     await player.setLoopMode(mode);
   }
 
   Future<void> setShuffleModeEnabled(bool enabled) async {
-    _log.info('Setting shuffle mode enabled: $enabled');
     await player.setShuffleModeEnabled(enabled);
   }
 }
