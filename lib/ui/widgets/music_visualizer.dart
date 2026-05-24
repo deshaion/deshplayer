@@ -67,6 +67,16 @@ class _MusicVisualizerState extends State<MusicVisualizer> with SingleTickerProv
   @override
   void didUpdateWidget(MusicVisualizer oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    if (widget.barCount != oldWidget.barCount) {
+      // Re-initialize arrays if bar count changed (e.g. window resize)
+      _barHeights = List.generate(widget.barCount, (index) => 0.1);
+      _targetBarHeights = List.generate(widget.barCount, (index) => 0.1);
+      if (widget.isPlaying) {
+        _generateNewTargets();
+      }
+    }
+
     if (widget.isPlaying != oldWidget.isPlaying) {
       if (widget.isPlaying) {
         _generateNewTargets();

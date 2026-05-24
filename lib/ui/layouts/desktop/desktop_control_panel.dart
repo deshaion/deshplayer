@@ -103,49 +103,63 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
                       ),
                     ),
                     // Grouped Playback Controls + Volume + Menu
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        // Playback Controls
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            IconButton(
-                                icon: Icon(Icons.shuffle, color: isShuffle ? Theme.of(context).colorScheme.primary : Colors.grey),
-                                onPressed: player.toggleShuffle),
-                            IconButton(icon: const Icon(Icons.skip_previous), onPressed: player.playPrevious),
-                            FloatingActionButton.small(
-                              elevation: 0,
-                              onPressed: player.togglePlayPause,
-                              child: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+                    Expanded(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          // Playback Controls
+                          Flexible(
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  IconButton(
+                                      icon: Icon(Icons.shuffle, color: isShuffle ? Theme.of(context).colorScheme.primary : Colors.grey),
+                                      onPressed: player.toggleShuffle),
+                                  IconButton(icon: const Icon(Icons.skip_previous), onPressed: player.playPrevious),
+                                  FloatingActionButton.small(
+                                    elevation: 0,
+                                    onPressed: player.togglePlayPause,
+                                    child: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+                                  ),
+                                  IconButton(icon: const Icon(Icons.skip_next), onPressed: player.playNext),
+                                  IconButton(
+                                      icon: Icon(repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
+                                          color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
+                                      onPressed: player.toggleRepeat),
+                                ],
+                              ),
                             ),
-                            IconButton(icon: const Icon(Icons.skip_next), onPressed: player.playNext),
-                            IconButton(
-                                icon: Icon(repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
-                                    color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
-                                onPressed: player.toggleRepeat),
-                          ],
-                        ),
-                        const SizedBox(width: 16),
-                        // Volume + Menu
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            TriangleVolumeSlider(
-                              volume: player.settings.volume,
-                              onChanged: player.setVolume,
+                          ),
+                          const SizedBox(width: 16),
+                          // Volume + Menu
+                          Flexible(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                Flexible(
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(maxWidth: 150),
+                                    child: TriangleVolumeSlider(
+                                      volume: player.settings.volume,
+                                      onChanged: player.setVolume,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  key: _iconKey,
+                                  icon: const Icon(Icons.more_vert, color: Colors.grey),
+                                  onPressed: currentTrack != null
+                                      ? () => _showTrackMenu(context, player, currentTrack, _iconKey)
+                                      : null,
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              key: _iconKey,
-                              icon: const Icon(Icons.more_vert, color: Colors.grey),
-                              onPressed: currentTrack != null
-                                  ? () => _showTrackMenu(context, player, currentTrack, _iconKey)
-                                  : null,
-                            ),
-                          ],
-                        ),
-                      ],
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -234,40 +248,53 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     // Playback Controls
-                    Row(
-                      children: [
-                        IconButton(
-                            icon: Icon(Icons.shuffle, color: isShuffle ? Theme.of(context).colorScheme.primary : Colors.grey),
-                            onPressed: player.toggleShuffle),
-                        IconButton(icon: const Icon(Icons.skip_previous), onPressed: player.playPrevious),
-                        FloatingActionButton.small(
-                          elevation: 0,
-                          onPressed: player.togglePlayPause,
-                          child: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            IconButton(
+                                icon: Icon(Icons.shuffle, color: isShuffle ? Theme.of(context).colorScheme.primary : Colors.grey),
+                                onPressed: player.toggleShuffle),
+                            IconButton(icon: const Icon(Icons.skip_previous), onPressed: player.playPrevious),
+                            FloatingActionButton.small(
+                              elevation: 0,
+                              onPressed: player.togglePlayPause,
+                              child: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+                            ),
+                            IconButton(icon: const Icon(Icons.skip_next), onPressed: player.playNext),
+                            IconButton(
+                                icon: Icon(repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
+                                    color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
+                                onPressed: player.toggleRepeat),
+                          ],
                         ),
-                        IconButton(icon: const Icon(Icons.skip_next), onPressed: player.playNext),
-                        IconButton(
-                            icon: Icon(repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
-                                color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
-                            onPressed: player.toggleRepeat),
-                      ],
+                      ),
                     ),
                     // Volume + Menu
-                    Row(
-                      children: [
-                        TriangleVolumeSlider(
-                          volume: player.settings.volume,
-                          onChanged: player.setVolume,
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          key: _iconKey,
-                          icon: const Icon(Icons.more_vert, color: Colors.grey),
-                          onPressed: currentTrack != null
-                              ? () => _showTrackMenu(context, player, currentTrack, _iconKey)
-                              : null,
-                        ),
-                      ],
+                    Flexible(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Flexible(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 150),
+                              child: TriangleVolumeSlider(
+                                volume: player.settings.volume,
+                                onChanged: player.setVolume,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            key: _iconKey,
+                            icon: const Icon(Icons.more_vert, color: Colors.grey),
+                            onPressed: currentTrack != null
+                                ? () => _showTrackMenu(context, player, currentTrack, _iconKey)
+                                : null,
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
