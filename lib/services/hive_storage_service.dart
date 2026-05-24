@@ -6,6 +6,7 @@ import '../models/playlist.dart';
 import '../models/track.dart';
 import '../models/playback_state.dart';
 import '../models/settings.dart';
+import '../models/app_log_record.dart';
 import 'mock_media_service.dart';
 import 'package:logging/logging.dart';
 
@@ -22,12 +23,14 @@ class HiveStorageService {
   static const String playbackStateBoxName = 'playback_states';
   static const String settingsBoxName = 'settings';
   static const String historyBoxName = 'history';
+  static const String logsBoxName = 'logs';
 
   late Box<Playlist> playlistsBox;
   late Box<Track> tracksBox;
   late Box<PlaybackState> playbackStateBox;
   late Box<AppSettings> settingsBox;
   late Box<String> historyBox;
+  late Box<AppLogRecord> logsBox;
 
   Future<void> init() async {
     _log.info('Initializing Hive storage');
@@ -51,6 +54,7 @@ class HiveStorageService {
     Hive.registerAdapter(PlaylistAdapter());
     Hive.registerAdapter(PlaybackStateAdapter());
     Hive.registerAdapter(AppSettingsAdapter());
+    Hive.registerAdapter(AppLogRecordAdapter());
 
     _log.fine('Opening Hive boxes');
     playlistsBox = await Hive.openBox<Playlist>(playlistsBoxName);
@@ -58,6 +62,7 @@ class HiveStorageService {
     playbackStateBox = await Hive.openBox<PlaybackState>(playbackStateBoxName);
     settingsBox = await Hive.openBox<AppSettings>(settingsBoxName);
     historyBox = await Hive.openBox<String>(historyBoxName);
+    logsBox = await Hive.openBox<AppLogRecord>(logsBoxName);
 
     // Seed mock data if empty
     if (playlistsBox.isEmpty && tracksBox.isEmpty) {
@@ -103,4 +108,20 @@ class HiveStorageService {
       await historyBox.deleteAt(0); // keep history bounded
     }
   }
+
+  // Logs
+  List<AppLogRecord> getLogs() => logsBox.values.toList();
+
+  Future<void> addLog(AppLogRecord log) async {
+    await logsBox.add(log);
+    // Keep max 10000 records
+    if (logsBox.length > 10000) {
+      // Remove the oldest 1000 to avoid deleting one by one on every log if at limit
+      final int amountToRemove = logsBox.length - 9000;
+      final keysToRemove = logsBox.keys.take(amountToRemove);
+      await logsBox.deleteAll(keysToRemove);
+    }
+  }
+
+  Future<void> clearLogs() => logsBox.clear();
 }
