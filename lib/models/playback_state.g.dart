@@ -20,19 +20,26 @@ class PlaybackStateAdapter extends TypeAdapter<PlaybackState> {
       playlistId: fields[0] as String,
       currentTrackId: fields[1] as String?,
       position: fields[2] as Duration,
+      accumulatedTime:
+          fields[3] == null ? Duration.zero : fields[3] as Duration,
+      statsRecorded: fields[4] == null ? false : fields[4] as bool,
     );
   }
 
   @override
   void write(BinaryWriter writer, PlaybackState obj) {
     writer
-      ..writeByte(3)
+      ..writeByte(5)
       ..writeByte(0)
       ..write(obj.playlistId)
       ..writeByte(1)
       ..write(obj.currentTrackId)
       ..writeByte(2)
-      ..write(obj.position);
+      ..write(obj.position)
+      ..writeByte(3)
+      ..write(obj.accumulatedTime)
+      ..writeByte(4)
+      ..write(obj.statsRecorded);
   }
 
   @override
