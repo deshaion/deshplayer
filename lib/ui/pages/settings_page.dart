@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../services/cloud_media_service.dart';
 import '../../services/hive_storage_service.dart';
 import '../../models/settings.dart';
 import '../../utils/cache_size_parser.dart';
+import 'logs_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -21,6 +23,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late TextEditingController _statsFolderController;
   late TextEditingController _maxCacheSizeController;
   String? _selectedStatsProviderId;
+  String _appVersion = '';
 
   @override
   void initState() {
@@ -30,6 +33,16 @@ class _SettingsPageState extends State<SettingsPage> {
     _maxCacheSizeController = TextEditingController(text: CacheSizeParser.format(_settings.maxCacheSizeBytes));
     _selectedStatsProviderId = _settings.cloudStatsProviderId;
     _checkConnections();
+    _initPackageInfo();
+  }
+
+  Future<void> _initPackageInfo() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) {
+      setState(() {
+        _appVersion = info.version;
+      });
+    }
   }
 
   @override
@@ -125,6 +138,19 @@ class _SettingsPageState extends State<SettingsPage> {
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               children: [
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.list_alt),
+                  title: const Text('View Application Logs'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const LogsPage()),
+                    );
+                  },
+                ),
+                const Divider(),
                 const Padding(
                   padding: EdgeInsets.all(16.0),
                   child: Text(
@@ -173,6 +199,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       const SizedBox(width: 16),
                       Expanded(
                         child: DropdownButtonFormField<String?>(
+                          // ignore: deprecated_member_use
                           value: _selectedStatsProviderId,
                           decoration: const InputDecoration(
                             labelText: 'Provider',
@@ -213,7 +240,17 @@ class _SettingsPageState extends State<SettingsPage> {
                       onPressed: _saveSettings,
                       child: const Text('Save Settings'),
                   ),
-                )
+                ),
+                if (_appVersion.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 24.0),
+                    child: Center(
+                      child: Text(
+                        'App Version: $_appVersion',
+                        style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      ),
+                    ),
+                  ),
               ],
             ),
     );
