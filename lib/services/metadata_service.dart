@@ -51,12 +51,17 @@ class MetadataService {
         final hive = HiveStorageService();
         final allTracks = hive.getAllTracks();
 
+        final Map<String, List<Track>> tracksByCloudPath = {};
+        for (final t in allTracks) {
+          tracksByCloudPath.putIfAbsent(t.cloudPath, () => []).add(t);
+        }
+
         for (final entry in existingMetadata.entries) {
           final currentFileName = entry.key;
           final entryData = entry.value;
 
           final expectedCloudPath = '$providerPrefix${dirPath.endsWith('/') ? dirPath : '$dirPath/'}$currentFileName';
-          final matchingTracks = allTracks.where((t) => t.cloudPath == expectedCloudPath);
+          final matchingTracks = tracksByCloudPath[expectedCloudPath] ?? [];
           for (final t in matchingTracks) {
             bool changed = false;
             if (t.artist == null || t.artist == 'Unknown Artist') { t.artist = entryData['artist']; changed = true; }
@@ -99,6 +104,10 @@ class MetadataService {
       track.title = title;
       track.artist = artist;
       track.duration = duration;
+
+      final hive = HiveStorageService();
+      await hive.saveTrack(track);
+
       metadata[fileName] = {
         'title': title,
         'artist': artist,
