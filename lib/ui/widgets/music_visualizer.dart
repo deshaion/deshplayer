@@ -92,7 +92,9 @@ class _MusicVisualizerState extends State<MusicVisualizer> with SingleTickerProv
   Widget build(BuildContext context) {
     final color = widget.barColor ?? Theme.of(context).colorScheme.primary;
     final spacing = 2.0;
-    final barWidth = (widget.width - (spacing * (widget.barCount - 1))) / widget.barCount;
+    final horizontalPadding = 16.0; // 8.0 on left, 8.0 on right
+    final availableWidth = widget.width - horizontalPadding;
+    final barWidth = (availableWidth - (spacing * (widget.barCount - 1))) / widget.barCount;
 
     return Container(
       width: widget.width,
