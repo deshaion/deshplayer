@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart';
 import '../../../services/player_provider.dart';
 import '../../../services/hive_storage_service.dart';
+import '../../widgets/triangle_volume_slider.dart';
+import '../../widgets/music_visualizer.dart';
 
 class DesktopControlPanel extends StatefulWidget {
   const DesktopControlPanel({super.key});
@@ -16,6 +18,18 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
 
   @override
   Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 1200) {
+          return _buildWideLayout(context);
+        } else {
+          return _buildNarrowLayout(context);
+        }
+      },
+    );
+  }
+
+  Widget _buildWideLayout(BuildContext context) {
     final player = context.watch<PlayerProvider>();
     final currentTrack = player.currentTrack;
     final isPlaying = player.isPlaying;
@@ -23,80 +37,30 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
     final repeatMode = player.settings.repeatMode;
 
     return Container(
-      height: 90,
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         border: Border(top: BorderSide(color: Colors.grey.shade300, width: 1)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Left: Track Info
-          Expanded(
-            flex: 1,
-            child: Row(
-              children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.music_note, size: 32),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        currentTrack?.title ?? 'No Track',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        currentTrack?.artist ?? '',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+          // Left: Visualizer
+          MusicVisualizer(
+            isPlaying: isPlaying,
+            width: 80,
+            height: 80,
+            barCount: 7,
           ),
-          // Center: Controls and Seek Slider
+          const SizedBox(width: 24),
+          // Right Side: 2 Rows (Progress Bar top, Controls bottom)
           Expanded(
-            flex: 2,
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    IconButton(
-                        icon: Icon(Icons.shuffle, color: isShuffle ? Theme.of(context).colorScheme.primary : Colors.grey),
-                        onPressed: player.toggleShuffle),
-                    IconButton(icon: const Icon(Icons.skip_previous), onPressed: player.playPrevious),
-                    FloatingActionButton.small(
-                      elevation: 0,
-                      onPressed: player.togglePlayPause,
-                      child: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
-                    ),
-                    IconButton(icon: const Icon(Icons.skip_next), onPressed: player.playNext),
-                    IconButton(
-                        icon: Icon(repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
-                            color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
-                        onPressed: player.toggleRepeat),
-                  ],
-                ),
+                // Top Row: Progress Bar
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  padding: const EdgeInsets.only(bottom: 8.0),
                   child: ProgressBar(
                     progress: player.position,
                     total: currentTrack?.duration ?? player.duration,
@@ -106,39 +70,204 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
                     timeLabelTextStyle: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 ),
+                // Bottom Row: Meta + Playback + Volume
+                Row(
+                  children: [
+                    // Meta (Title - Artist)
+                    Expanded(
+                      flex: 1,
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              currentTrack?.title ?? 'No Track',
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (currentTrack?.artist != null && currentTrack!.artist!.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            const Text('-', style: TextStyle(color: Colors.grey)),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                currentTrack.artist!,
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    // Playback Controls
+                    Expanded(
+                      flex: 1,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          IconButton(
+                              icon: Icon(Icons.shuffle, color: isShuffle ? Theme.of(context).colorScheme.primary : Colors.grey),
+                              onPressed: player.toggleShuffle),
+                          IconButton(icon: const Icon(Icons.skip_previous), onPressed: player.playPrevious),
+                          FloatingActionButton.small(
+                            elevation: 0,
+                            onPressed: player.togglePlayPause,
+                            child: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+                          ),
+                          IconButton(icon: const Icon(Icons.skip_next), onPressed: player.playNext),
+                          IconButton(
+                              icon: Icon(repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
+                                  color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
+                              onPressed: player.toggleRepeat),
+                        ],
+                      ),
+                    ),
+                    // Volume + Menu
+                    Expanded(
+                      flex: 1,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TriangleVolumeSlider(
+                            volume: player.settings.volume,
+                            onChanged: player.setVolume,
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            key: _iconKey,
+                            icon: const Icon(Icons.more_vert, color: Colors.grey),
+                            onPressed: currentTrack != null
+                                ? () => _showTrackMenu(context, player, currentTrack, _iconKey)
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
-          // Right: Volume Control
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNarrowLayout(BuildContext context) {
+    final player = context.watch<PlayerProvider>();
+    final currentTrack = player.currentTrack;
+    final isPlaying = player.isPlaying;
+    final isShuffle = player.settings.shuffle;
+    final repeatMode = player.settings.repeatMode;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(top: BorderSide(color: Colors.grey.shade300, width: 1)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Left: Visualizer (Narrower)
+          MusicVisualizer(
+            isPlaying: isPlaying,
+            width: 60,
+            height: 100, // Taller to match 3 rows roughly
+            barCount: 5,
+          ),
+          const SizedBox(width: 24),
+          // Right Side: 3 Rows
           Expanded(
-            flex: 1,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.volume_down, color: Colors.grey),
-                Flexible(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 100),
-                    child: SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        trackHeight: 4,
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                      ),
-                      child: Slider(
-                        value: player.settings.volume,
-                        onChanged: player.setVolume,
-                      ),
-                    ),
+                // Top Row: Progress Bar
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: ProgressBar(
+                    progress: player.position,
+                    total: currentTrack?.duration ?? player.duration,
+                    onSeek: player.seek,
+                    barHeight: 4,
+                    thumbRadius: 6,
+                    timeLabelTextStyle: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 ),
-                const Icon(Icons.volume_up, color: Colors.grey),
-                const SizedBox(width: 8),
-                IconButton(
-                  key: _iconKey,
-                  icon: const Icon(Icons.more_vert, color: Colors.grey),
-                  onPressed: currentTrack != null
-                      ? () => _showTrackMenu(context, player, currentTrack, _iconKey)
-                      : null,
+                // Middle Row: Meta (Title - Artist) full width
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          currentTrack?.title ?? 'No Track',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (currentTrack?.artist != null && currentTrack!.artist!.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        const Text('-', style: TextStyle(color: Colors.grey)),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            currentTrack.artist!,
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                // Bottom Row: Playback Controls & Volume
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Playback Controls
+                    Row(
+                      children: [
+                        IconButton(
+                            icon: Icon(Icons.shuffle, color: isShuffle ? Theme.of(context).colorScheme.primary : Colors.grey),
+                            onPressed: player.toggleShuffle),
+                        IconButton(icon: const Icon(Icons.skip_previous), onPressed: player.playPrevious),
+                        FloatingActionButton.small(
+                          elevation: 0,
+                          onPressed: player.togglePlayPause,
+                          child: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+                        ),
+                        IconButton(icon: const Icon(Icons.skip_next), onPressed: player.playNext),
+                        IconButton(
+                            icon: Icon(repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
+                                color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
+                            onPressed: player.toggleRepeat),
+                      ],
+                    ),
+                    // Volume + Menu
+                    Row(
+                      children: [
+                        TriangleVolumeSlider(
+                          volume: player.settings.volume,
+                          onChanged: player.setVolume,
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          key: _iconKey,
+                          icon: const Icon(Icons.more_vert, color: Colors.grey),
+                          onPressed: currentTrack != null
+                              ? () => _showTrackMenu(context, player, currentTrack, _iconKey)
+                              : null,
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ],
             ),
