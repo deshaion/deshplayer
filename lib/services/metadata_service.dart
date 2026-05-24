@@ -4,6 +4,7 @@ import 'package:audiotags/audiotags.dart';
 import 'package:logging/logging.dart';
 import '../models/track.dart';
 import 'cloud_provider.dart';
+import 'hive_storage_service.dart';
 
 class MetadataService {
   final _log = Logger('MetadataService');
@@ -32,6 +33,59 @@ class MetadataService {
 
   Future<void> updateMetadataInCloud(CloudProvider provider, String cloudFilePath, Track track, Directory localCacheDir) async {
     try {
+      final schemeIdx = cloudFilePath.indexOf('://');
+      if (schemeIdx == -1) return;
+      final actualPath = cloudFilePath.substring(schemeIdx + 3);
+      final dirPath = actualPath.substring(0, actualPath.lastIndexOf('/'));
+
+      final cloudMetadataPath = '${dirPath.endsWith('/') ? dirPath : '$dirPath/'}$metadataFileName';
+
+      Map<String, dynamic> metadata = {};
+      final existingMetadata = await getCloudMetadata(provider, dirPath, localCacheDir);
+      final fileName = actualPath.split('/').last;
+      final providerPrefix = cloudFilePath.substring(0, schemeIdx + 3);
+
+      if (existingMetadata != null) {
+        metadata = existingMetadata;
+
+        final hive = HiveStorageService();
+        final allTracks = hive.getAllTracks();
+
+        final Map<String, List<Track>> tracksByCloudPath = {};
+        for (final t in allTracks) {
+          tracksByCloudPath.putIfAbsent(t.cloudPath, () => []).add(t);
+        }
+
+        for (final entry in existingMetadata.entries) {
+          final currentFileName = entry.key;
+          final entryData = entry.value;
+
+          final expectedCloudPath = '$providerPrefix${dirPath.endsWith('/') ? dirPath : '$dirPath/'}$currentFileName';
+          final matchingTracks = tracksByCloudPath[expectedCloudPath] ?? [];
+          for (final t in matchingTracks) {
+            bool changed = false;
+            if (t.artist == null || t.artist == 'Unknown Artist') { t.artist = entryData['artist']; changed = true; }
+            if (t.title == null || t.title == 'Unknown Track') { t.title = entryData['title']; changed = true; }
+            if (t.duration.inSeconds == 0 && entryData['durationMs'] != null) { t.duration = Duration(milliseconds: entryData['durationMs']); changed = true; }
+            if (changed) {
+              await hive.saveTrack(t);
+
+              if (t.id == track.id) {
+                 track.artist = t.artist;
+                 track.title = t.title;
+                 track.duration = t.duration;
+              }
+            }
+          }
+        }
+      }
+
+      final isCurrentTrackPopulated = track.artist != null && track.artist != 'Unknown Artist' && track.title != null && track.title != 'Unknown Track' && track.duration.inSeconds > 0;
+      if (metadata.containsKey(fileName) && isCurrentTrackPopulated) {
+        _log.info('Current track is already populated and exists in cloud metadata. No reason to upload.');
+        return;
+      }
+
       if (track.localCachePath == null || !File(track.localCachePath!).existsSync()) {
         _log.warning('Cannot read tags, file missing: ${track.localCachePath}');
         return;
@@ -51,20 +105,9 @@ class MetadataService {
       track.artist = artist;
       track.duration = duration;
 
-      final schemeIdx = cloudFilePath.indexOf('://');
-      if (schemeIdx == -1) return;
-      final actualPath = cloudFilePath.substring(schemeIdx + 3);
-      final dirPath = actualPath.substring(0, actualPath.lastIndexOf('/'));
+      final hive = HiveStorageService();
+      await hive.saveTrack(track);
 
-      final cloudMetadataPath = '${dirPath.endsWith('/') ? dirPath : '$dirPath/'}$metadataFileName';
-
-      Map<String, dynamic> metadata = {};
-      final existingMetadata = await getCloudMetadata(provider, dirPath, localCacheDir);
-      if (existingMetadata != null) {
-        metadata = existingMetadata;
-      }
-
-      final fileName = actualPath.split('/').last;
       metadata[fileName] = {
         'title': title,
         'artist': artist,
