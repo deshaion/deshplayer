@@ -3,6 +3,7 @@ import '../../services/cloud_media_service.dart';
 import '../../services/hive_storage_service.dart';
 import '../../models/settings.dart';
 import '../../utils/cache_size_parser.dart';
+import 'logs_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -125,6 +126,19 @@ class _SettingsPageState extends State<SettingsPage> {
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               children: [
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.list_alt),
+                  title: const Text('View Application Logs'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const LogsPage()),
+                    );
+                  },
+                ),
+                const Divider(),
                 const Padding(
                   padding: EdgeInsets.all(16.0),
                   child: Text(

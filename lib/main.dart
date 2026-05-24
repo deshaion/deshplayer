@@ -6,15 +6,28 @@ import 'services/player_provider.dart';
 import 'ui/app.dart';
 import 'package:logging/logging.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
+import 'models/app_log_record.dart';
 
 void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final storageService = HiveStorageService();
+  await storageService.init();
+
   Logger.root.level = Level.ALL;
   Logger.root.onRecord.listen((record) {
     print('[${record.level.name}] (${record.loggerName}): ${record.message}');
     if (record.error != null) print('Error: ${record.error}');
-  });
 
-  WidgetsFlutterBinding.ensureInitialized();
+    // Save to Hive
+    storageService.addLog(AppLogRecord(
+      level: record.level.name,
+      loggerName: record.loggerName,
+      message: record.message,
+      error: record.error?.toString(),
+      time: record.time,
+    ));
+  });
 
   JustAudioMediaKit.ensureInitialized(
     linux: true,
@@ -23,9 +36,6 @@ void main() async {
     iOS: false,
     macOS: false,
   );
-
-  final storageService = HiveStorageService();
-  await storageService.init();
 
   final statsService = StatsService();
   await statsService.init();
