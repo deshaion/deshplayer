@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../../services/stats_service.dart';
-import '../../../services/hive_storage_service.dart';
-import '../../../models/track.dart';
 
 class StatsPage extends StatefulWidget {
   const StatsPage({super.key});
@@ -12,10 +10,9 @@ class StatsPage extends StatefulWidget {
 
 class _StatsPageState extends State<StatsPage> {
   final StatsService _statsService = StatsService();
-  final HiveStorageService _storageService = HiveStorageService();
 
   String _selectedPeriod = 'This Month';
-  List<MapEntry<Track, int>> _topTracks = [];
+  List<MapEntry<String, int>> _topTracks = [];
 
   @override
   void initState() {
@@ -38,10 +35,7 @@ class _StatsPageState extends State<StatsPage> {
 
     final aggregated = _statsService.getStatsForPeriod(start, now);
 
-    final entries = aggregated.entries.map((e) {
-        final track = _storageService.getTrack(e.key);
-        return MapEntry(track, e.value);
-    }).where((e) => e.key != null).map((e) => MapEntry(e.key!, e.value)).toList();
+    final entries = aggregated.entries.toList();
 
     entries.sort((a, b) => b.value.compareTo(a.value));
 
@@ -83,15 +77,26 @@ class _StatsPageState extends State<StatsPage> {
                     itemCount: _topTracks.length,
                     itemBuilder: (context, index) {
                       final entry = _topTracks[index];
-                      final track = entry.key;
+                      final trackKey = entry.key;
                       final count = entry.value;
+
+                      String artist = 'Unknown Artist';
+                      String title = 'Unknown';
+
+                      final delimiterIndex = trackKey.indexOf(' - ');
+                      if (delimiterIndex != -1) {
+                        artist = trackKey.substring(0, delimiterIndex);
+                        title = trackKey.substring(delimiterIndex + 3);
+                      } else {
+                        title = trackKey;
+                      }
 
                       return ListTile(
                         leading: CircleAvatar(
                           child: Text('${index + 1}'),
                         ),
-                        title: Text(track.title ?? 'Unknown'),
-                        subtitle: Text(track.artist ?? 'Unknown Artist'),
+                        title: Text(title),
+                        subtitle: Text(artist),
                         trailing: Text('$count plays', style: const TextStyle(fontWeight: FontWeight.bold)),
                       );
                     },
