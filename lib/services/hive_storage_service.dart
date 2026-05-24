@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:path_provider/path_provider.dart';
+
 import '../models/duration_adapter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/playlist.dart';
@@ -88,6 +88,7 @@ class HiveStorageService {
   // Tracks
   Track? getTrack(String id) => tracksBox.get(id);
   List<Track> getTracksByIds(List<String> ids) => ids.map((id) => tracksBox.get(id)).whereType<Track>().toList();
+  List<Track> getAllTracks() => tracksBox.values.toList();
   Future<void> saveTrack(Track track) => tracksBox.put(track.id, track);
 
   // Playback State
