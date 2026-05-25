@@ -63,11 +63,10 @@ class MetadataService {
           final expectedCloudPath = '$providerPrefix${dirPath.endsWith('/') ? dirPath : '$dirPath/'}$currentFileName';
           final matchingTracks = tracksByCloudPath[expectedCloudPath] ?? [];
           for (final t in matchingTracks) {
-            bool changed = false;
-            if (t.artist == null || t.artist == 'Unknown Artist') { t.artist = entryData['artist']; changed = true; }
-            if (t.title == null || t.title == 'Unknown Track') { t.title = entryData['title']; changed = true; }
-            if (t.duration.inSeconds == 0 && entryData['durationMs'] != null) { t.duration = Duration(milliseconds: entryData['durationMs']); changed = true; }
-            if (changed) {
+            if (t.artist == null || t.duration.inSeconds == 0) {
+              t.artist = entryData['artist'];
+              t.title = entryData['title'];
+              t.duration = Duration(milliseconds: entryData['durationMs']);
               await hive.saveTrack(t);
 
               if (t.id == track.id) {

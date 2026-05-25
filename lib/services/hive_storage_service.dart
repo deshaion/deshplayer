@@ -124,4 +124,15 @@ class HiveStorageService {
   }
 
   Future<void> clearLogs() => logsBox.clear();
+  
+  void checkTrackDb() async {
+    _log.info('Starting Track DB Check...');
+    final allTracks = getAllTracks();
+    for (final t in allTracks) {
+      if (t.duration.inSeconds > 0 && ((t.title?.contains(".mp3") ?? false) || (t.title?.contains(".flac") ?? false))) {
+        _log.warning('Track representation warning: Title: ${t.title} Artist: ${t.artist} Duration: ${t.duration} file: ${t.cloudPath}');
+      }
+    }
+    _log.fine('Track DB Check has been completed');
+  }
 }

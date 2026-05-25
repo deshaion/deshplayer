@@ -30,6 +30,8 @@ void main() async {
     ));
   });
 
+  storageService.checkTrackDb();
+
   await JustAudioBackground.init(
     androidNotificationChannelId: 'com.ryanheise.bg_demo.channel.audio',
     androidNotificationChannelName: 'Audio playback',

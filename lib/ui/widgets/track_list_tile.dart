@@ -45,7 +45,7 @@ class TrackListTile extends StatelessWidget {
         ),
         const PopupMenuItem(
           value: 'sync_metadata',
-          child: Text('Update metadata'),
+          child: Text('Sync metadata'),
         ),
       ],
     );
@@ -63,6 +63,8 @@ class TrackListTile extends StatelessWidget {
        }
     } else if (value == 'sync_metadata') {
        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Updating metadata for ${track.title ?? 'track'}...')));
+       track.title = null;
+       track.artist = null;
        await player.syncTrackMetadata(track);
        if (context.mounted) {
          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Metadata updated for ${track.title ?? 'track'}')));
