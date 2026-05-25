@@ -79,7 +79,7 @@ class CloudMediaService {
     String? downloadUrl;
     try {
       downloadUrl = await provider.getDownloadUrl(path);
-    } on CloudFileNotFoundException catch (e) {
+    } on CloudFileNotFoundException {
       _log.severe('File not found in cloud, removing globally: ${track.id}');
       await HiveStorageService().deleteTrackGlobally(track.id);
       throw TrackRemovedException('Track "${track.title}" was removed from the cloud and has been deleted from your library.');
