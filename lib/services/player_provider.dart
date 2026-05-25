@@ -124,25 +124,9 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
 
-    _audioService.player.playbackEventStream.listen(
-      (event) {},
-      onError: (Object e, StackTrace stackTrace) {
-        // If it throws an error but we are at the very end of the file, treat it as EOF.
-        // This commonly happens with FLAC trailing garbage where ffmpeg expects another frame.
-        if (_duration.inMilliseconds > 0 &&
-            _position.inMilliseconds >= _duration.inMilliseconds - 1500) {
-          _log.info(
-            'Caught terminal decoding error near EOF. Treating as successful completion. Error: $e',
-          );
-          _consecutiveFailures = 0; // Reset failures
-
-          // Add a small delay to give media_kit/just_audio time to dispose the bad native instance gracefully
-          Future.delayed(const Duration(milliseconds: 500), () {
-            playNext();
-          });
-        } else {
+    _audioService.player.playbackEventStream.listen((event) {},
+      onError: (Object e, StackTrace stackTrace) {        
           _handlePlaybackError(e);
-        }
       },
     );
 
