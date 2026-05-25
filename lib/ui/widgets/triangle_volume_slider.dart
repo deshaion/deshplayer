@@ -15,13 +15,13 @@ class TriangleVolumeSlider extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          volume == 0
-              ? Icons.volume_off
-              : volume < 0.5
-                  ? Icons.volume_down
-                  : Icons.volume_up,
-          color: Colors.grey,
+        Transform.translate(
+          offset: const Offset(0, 4),
+          child: Icon(
+            volume == 0 ? Icons.volume_off : volume < 0.5 ? Icons.volume_down : Icons.volume_up,
+            color: Colors.grey,
+            size: 16,
+          )
         ),
         const SizedBox(width: 8),
         GestureDetector(
