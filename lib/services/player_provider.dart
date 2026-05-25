@@ -495,4 +495,9 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     notifyListeners();
   }
+
+  Future<void> syncTrackMetadata(Track track) async {
+    await _audioService.syncMetadataAsync(track);
+    notifyListeners();
+  }
 }
