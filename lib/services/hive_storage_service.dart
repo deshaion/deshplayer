@@ -89,6 +89,22 @@ class HiveStorageService {
   List<Track> getTracksByIds(List<String> ids) => ids.map((id) => tracksBox.get(id)).whereType<Track>().toList();
   List<Track> getAllTracks() => tracksBox.values.toList();
   Future<void> saveTrack(Track track) => tracksBox.put(track.id, track);
+  Future<void> deleteTrackGlobally(String trackId) async {
+    _log.info('Deleting track globally: $trackId');
+
+    // 1. Delete from tracksBox
+    await tracksBox.delete(trackId);
+
+    // 2. Remove trackId from all playlists
+    final allPlaylists = getPlaylists();
+    for (final playlist in allPlaylists) {
+      if (playlist.trackIds.contains(trackId)) {
+        playlist.trackIds.removeWhere((id) => id == trackId);
+        await savePlaylist(playlist);
+        _log.info('Removed track $trackId from playlist ${playlist.id}');
+      }
+    }
+  }
 
   // Playback State
   PlaybackState? getPlaybackState(String playlistId) => playbackStateBox.get(playlistId);

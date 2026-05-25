@@ -6,6 +6,7 @@ Deshplayer seamlessly synchronizes your media and data with cloud storage to pro
 
 - **Metadata Synchronization:** The application relies on a per-folder `metadata.json` stored in the cloud. If a downloaded track is missing artist or duration information, the player extracts embedded tags from the file and triggers an asynchronous cloud update to keep the metadata in sync.
 - **Playback Statistics:** Track playback statistics (tracked uniquely by 'Artist - Title') are stored locally and synced to the cloud. This synchronization process utilizes MD5 hashes to optimize updates and minimize unnecessary network traffic.
+- **Automatic Track Sync:** Deshplayer automatically detects if a track file is removed from your cloud storage. If a track is deleted from the cloud, the player will seamlessly handle the playback error, automatically remove the track from your local library and all playlists, and skip to the next track.
 
 ## How to build it
 

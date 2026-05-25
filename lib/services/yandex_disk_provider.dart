@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/cloud_node.dart';
+import '../models/exceptions.dart';
 import 'cloud_provider.dart';
 import 'secure_storage_service.dart';
 import 'package:logging/logging.dart';
@@ -115,6 +116,8 @@ class YandexDiskProvider implements CloudProvider {
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
       return data['href'];
+    } else if (response.statusCode == 404) {
+      throw CloudFileNotFoundException('File not found at $path (404)');
     } else {
       throw Exception('Failed to get download URL: ${response.statusCode} - ${response.body}');
     }

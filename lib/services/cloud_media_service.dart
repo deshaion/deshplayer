@@ -6,6 +6,7 @@ import 'cloud_provider.dart';
 import 'yandex_disk_provider.dart';
 import 'secure_storage_service.dart';
 import 'hive_storage_service.dart';
+import '../models/exceptions.dart';
 import 'package:logging/logging.dart';
 
 class CloudMediaService {
@@ -75,7 +76,15 @@ class CloudMediaService {
     }
 
     _log.fine('Obtaining download URL for path: $path');
-    final downloadUrl = await provider.getDownloadUrl(path);
+    String? downloadUrl;
+    try {
+      downloadUrl = await provider.getDownloadUrl(path);
+    } on CloudFileNotFoundException catch (e) {
+      _log.severe('File not found in cloud, removing globally: ${track.id}');
+      await HiveStorageService().deleteTrackGlobally(track.id);
+      throw TrackRemovedException('Track "${track.title}" was removed from the cloud and has been deleted from your library.');
+    }
+
     if (downloadUrl == null) {
       _log.severe('No download URL obtained for path: $path');
       throw Exception('No download URL obtained');
@@ -97,6 +106,10 @@ class CloudMediaService {
         _log.info('Download complete: ${file.path}');
 
         await _cleanupCache(cacheDir);
+      } else if (response.statusCode == 404) {
+        _log.severe('Download URL returned 404, removing globally: ${track.id}');
+        await HiveStorageService().deleteTrackGlobally(track.id);
+        throw TrackRemovedException('Track "${track.title}" was removed from the cloud and has been deleted from your library.');
       } else {
         _log.severe('Failed to download track: ${response.statusCode}');
         throw Exception('Failed to download track: ${response.statusCode}');

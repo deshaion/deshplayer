@@ -5,6 +5,7 @@ import '../models/playlist.dart';
 import '../models/track.dart';
 import '../models/playback_state.dart' as pstate;
 import '../models/settings.dart';
+import '../models/exceptions.dart';
 import 'dart:async';
 import 'hive_storage_service.dart';
 import 'audio_player_service.dart';
@@ -430,7 +431,13 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _consecutiveFailures++;
 
     final trackName = _currentTrack?.title ?? 'Unknown Track';
-    final errorMessage = 'Failed to play "$trackName". Error: $e';
+    String errorMessage;
+    if (e is TrackRemovedException) {
+      errorMessage = e.toString();
+    } else {
+      errorMessage = 'Failed to play "$trackName". Error: $e';
+    }
+
     _errorController.add(errorMessage);
 
     if (_consecutiveFailures < _maxConsecutiveFailures) {
