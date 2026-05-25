@@ -43,6 +43,10 @@ class TrackListTile extends StatelessWidget {
           value: 'remove',
           child: Text('Remove from Playlist'),
         ),
+        const PopupMenuItem(
+          value: 'sync_metadata',
+          child: Text('Update metadata'),
+        ),
       ],
     );
 
@@ -56,6 +60,12 @@ class TrackListTile extends StatelessWidget {
     } else if (value == 'remove') {
        if (onRemoveFromPlaylist != null) {
          onRemoveFromPlaylist!();
+       }
+    } else if (value == 'sync_metadata') {
+       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Updating metadata for ${track.title ?? 'track'}...')));
+       await player.syncTrackMetadata(track);
+       if (context.mounted) {
+         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Metadata updated for ${track.title ?? 'track'}')));
        }
     }
   }

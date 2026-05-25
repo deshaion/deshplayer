@@ -31,7 +31,7 @@ class AudioPlayerService {
 
       // Check if we need to sync metadata (even if played from cache)
       if (track.artist == null || track.duration.inSeconds == 0) {
-        _syncMetadataAsync(track);
+        syncMetadataAsync(track);
       }
     } catch (e) {
       _log.warning('Failed to pre-cache track: ${track.id}', e);
@@ -97,7 +97,7 @@ class AudioPlayerService {
 
       // Check if we need to sync metadata (even if played from cache)
       if (track.artist == null || track.duration.inSeconds == 0) {
-        _syncMetadataAsync(track);
+        syncMetadataAsync(track);
       }
 
       _log.info('Starting playback for track: ${track.id}');
@@ -110,7 +110,7 @@ class AudioPlayerService {
     }
   }
 
-  Future<void> _syncMetadataAsync(Track track) async {
+  Future<void> syncMetadataAsync(Track track) async {
     try {
       final schemeIdx = track.cloudPath.indexOf('://');
       if (schemeIdx == -1) return;
