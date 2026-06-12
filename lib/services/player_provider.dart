@@ -113,11 +113,11 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
                       null) {
                 await _audioService.seek(_position);
               } else {
-                await _audioService.player.setUrl(_currentTrack!.cloudPath);
-                await _audioService.seek(_position);
+                _log.severe('Something wrong with localCachePath of current track ${_currentTrack!.localCachePath}');
+                await _audioService.playTrack(_currentTrack!);
               }
             } catch (e) {
-              // ignore
+              _log.severe('Playback error caught in provider in starting current track: $e');
             }
           }
         }
