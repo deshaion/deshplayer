@@ -63,29 +63,35 @@ class _MobileControlPanelState extends State<MobileControlPanel> {
           ),
           // Controls
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              IconButton(
-                icon: Icon(Icons.shuffle, color: isShuffle ? Theme.of(context).colorScheme.primary : Colors.grey),
-                onPressed: player.toggleShuffle,
-              ),
-              IconButton(
-                icon: const Icon(Icons.skip_previous, size: 32),
-                onPressed: player.playPrevious,
-              ),
-              FloatingActionButton(
-                elevation: 0,
-                onPressed: player.togglePlayPause,
-                child: Icon(isPlaying ? Icons.pause : Icons.play_arrow, size: 32),
-              ),
-              IconButton(
-                icon: const Icon(Icons.skip_next, size: 32),
-                onPressed: player.playNext,
-              ),
-              IconButton(
-                icon: Icon(repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
-                            color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
-                onPressed: player.toggleRepeat,
+              const SizedBox(width: 48), // Placeholder to balance the more_vert icon and perfectly center the controls
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.shuffle, color: isShuffle ? Theme.of(context).colorScheme.primary : Colors.grey),
+                    onPressed: player.toggleShuffle,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.skip_previous, size: 32),
+                    onPressed: player.playPrevious,
+                  ),
+                  FloatingActionButton(
+                    elevation: 0,
+                    onPressed: player.togglePlayPause,
+                    child: Icon(isPlaying ? Icons.pause : Icons.play_arrow, size: 32),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.skip_next, size: 32),
+                    onPressed: player.playNext,
+                  ),
+                  IconButton(
+                    icon: Icon(repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
+                                color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
+                    onPressed: player.toggleRepeat,
+                  ),
+                ],
               ),
               IconButton(
                 key: _iconKey,
