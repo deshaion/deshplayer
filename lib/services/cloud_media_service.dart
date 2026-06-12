@@ -49,7 +49,7 @@ class CloudMediaService {
     return cacheDir;
   }
 
-  Future<String> downloadAndCacheTrack(Track track) async {
+  Future<String> downloadAndCacheTrack(Track track, {List<Track>? protectedTracks}) async {
     _log.info('Requesting download for track: ${track.id} from ${track.cloudPath}');
     // Determine provider from cloudPath if possible, or assume format "providerId://path"
     // Since previous track definition just had "cloudPath", let's define a convention:
@@ -59,7 +59,7 @@ class CloudMediaService {
     if (schemeIdx == -1) {
         _log.warning('Invalid cloudPath URI format: ${track.cloudPath}, falling back to mock download');
         // Fallback for mock tracks
-        return _mockDownload(track);
+        return _mockDownload(track, protectedTracks: protectedTracks);
     }
 
     final providerId = track.cloudPath.substring(0, schemeIdx);
@@ -105,7 +105,7 @@ class CloudMediaService {
         await sink.close();
         _log.info('Download complete: ${file.path}');
 
-        await _cleanupCache(cacheDir);
+        await _cleanupCache(cacheDir, protectedTracks: protectedTracks);
       } else if (response.statusCode == 404) {
         _log.severe('Download URL returned 404, removing globally: ${track.id}');
         await HiveStorageService().deleteTrackGlobally(track.id);
@@ -121,7 +121,7 @@ class CloudMediaService {
     return file.path;
   }
 
-  Future<void> _cleanupCache(Directory cacheDir) async {
+  Future<void> _cleanupCache(Directory cacheDir, {List<Track>? protectedTracks}) async {
     _log.info('Running cache cleanup...');
     try {
       final hive = HiveStorageService();
@@ -149,7 +149,12 @@ class CloudMediaService {
 
       // Get all tracks from Hive to determine lastAccessed
       final allTracks = hive.tracksBox.values.toList();
-      final cachedTracks = allTracks.where((t) => t.localCachePath != null).toList();
+      var cachedTracks = allTracks.where((t) => t.localCachePath != null).toList();
+
+      if (protectedTracks != null && protectedTracks.isNotEmpty) {
+        final protectedIds = protectedTracks.map((t) => t.id).toSet();
+        cachedTracks = cachedTracks.where((t) => !protectedIds.contains(t.id)).toList();
+      }
 
       // Sort tracks by lastAccessed (oldest first)
       // Tracks without lastAccessed will be treated as very old
@@ -190,7 +195,7 @@ class CloudMediaService {
     }
   }
 
-  Future<String> _mockDownload(Track track) async {
+  Future<String> _mockDownload(Track track, {List<Track>? protectedTracks}) async {
     _log.info('Mock downloading track: ${track.id}');
     await Future.delayed(const Duration(seconds: 1));
     final cacheDir = await getCacheDir();
@@ -201,7 +206,7 @@ class CloudMediaService {
     }
     _log.info('Mock download complete: ${file.path}');
 
-    await _cleanupCache(cacheDir);
+    await _cleanupCache(cacheDir, protectedTracks: protectedTracks);
 
     return file.path;
   }

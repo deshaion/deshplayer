@@ -17,7 +17,7 @@ class AudioPlayerService {
 
   AudioPlayerService(this.storageService);
 
-  Future<void> preCacheTrack(Track track) async {
+  Future<void> preCacheTrack(Track track, {List<Track>? protectedTracks}) async {
     if (track.localCachePath != null &&
         File(track.localCachePath!).existsSync()) {
       return;
@@ -25,7 +25,7 @@ class AudioPlayerService {
 
     _log.info('Pre-caching track: ${track.id}');
     try {
-      final localPath = await cloudMediaService.downloadAndCacheTrack(track);
+      final localPath = await cloudMediaService.downloadAndCacheTrack(track, protectedTracks: protectedTracks);
       track.localCachePath = localPath;
       await storageService.saveTrack(track);
 
@@ -38,7 +38,7 @@ class AudioPlayerService {
     }
   }
 
-  Future<void> playTrack(Track track) async {
+  Future<void> playTrack(Track track, {List<Track>? protectedTracks}) async {
     _log.info('Attempting to play track: ${track.id} (${track.title})');
 
     try {
@@ -64,7 +64,7 @@ class AudioPlayerService {
           'Track not in local cache, requesting download from cloud: ${track.cloudPath}',
         );
         // Use dedicated service to download
-        final localPath = await cloudMediaService.downloadAndCacheTrack(track);
+        final localPath = await cloudMediaService.downloadAndCacheTrack(track, protectedTracks: protectedTracks);
         track.localCachePath = localPath;
         track.lastAccessed = DateTime.now();
 
