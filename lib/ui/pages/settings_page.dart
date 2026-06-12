@@ -203,6 +203,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           value: _selectedStatsProviderId,
                           decoration: const InputDecoration(
                             labelText: 'Provider',
+                            helperText: ' ',
                           ),
                           items: [
                             const DropdownMenuItem<String?>(
