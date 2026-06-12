@@ -162,6 +162,12 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                           itemBuilder: (context, index) {
                             final playlist = widget.playlists[index];
                             final isSelected = playlist.id == selectedPlaylist?.id;
+                            final isPlayingPlaylist = playlist.id == player.playingPlaylist?.id;
+
+                            IconData playlistIcon = Icons.queue_music;
+                            if (isPlayingPlaylist) {
+                              playlistIcon = player.isPlaying ? Icons.volume_up : Icons.pause;
+                            }
                             return GestureDetector(
                               onSecondaryTapDown: (details) {
                                 _showPlaylistMenu(context, details.globalPosition, playlist);
@@ -171,7 +177,7 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                               },
                               child: ListTile(
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 24.0),
-                                leading: Icon(Icons.queue_music, color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey),
+                                leading: Icon(playlistIcon, color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey),
                                 title: Text(
                                   playlist.name,
                                   style: TextStyle(
