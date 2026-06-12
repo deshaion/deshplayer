@@ -28,6 +28,12 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final List<Track> _queue = [];
   final List<Track> _history = [];
 
+  List<Track> get _protectedTracks {
+    final list = List<Track>.from(_queue);
+    if (_currentTrack != null) list.add(_currentTrack!);
+    return list;
+  }
+
   DateTime _lastSaveTime = DateTime.now();
 
   // Stats tracking
@@ -250,7 +256,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     // Pre-cache next 2 tracks
     for (int i = 0; i < min(2, _queue.length); i++) {
-      _audioService.preCacheTrack(_queue[i]);
+      _audioService.preCacheTrack(_queue[i], protectedTracks: _protectedTracks);
     }
 
     notifyListeners();
@@ -268,6 +274,8 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> playPlaylist(Playlist playlist, {Track? startTrack}) async {
+    final isSamePlaylist = _currentPlaylist?.id == playlist.id;
+
     _currentPlaylist = playlist;
     _settings.lastActivePlaylistId = playlist.id;
     _storageService.saveSettings(_settings);
@@ -275,19 +283,22 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
 
     if (startTrack != null) {
-      if (_currentTrack?.id != startTrack.id) {
+      if (_currentTrack != null && _currentTrack?.id != startTrack.id) {
+        _history.add(_currentTrack!);
         _resetStatsForNewTrack();
       }
       _currentTrack = startTrack;
 
-      _queue.clear();
-      _fillQueue();
+      if (!isSamePlaylist) {
+        _queue.clear();
+        _fillQueue();
+      }
 
       notifyListeners();
 
       if (_currentTrack != null) {
         try {
-          await _audioService.playTrack(_currentTrack!);
+          await _audioService.playTrack(_currentTrack!, protectedTracks: _protectedTracks);
         } catch (e) {
           _handlePlaybackError(e);
         }
@@ -302,18 +313,17 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> playTrackDirectly(Track track) async {
-    if (_currentTrack != null) {
+    if (_currentTrack != null && _currentTrack?.id != track.id) {
       _history.add(_currentTrack!);
-    }
-    if (_currentTrack?.id != track.id) {
       _resetStatsForNewTrack();
     }
     _currentTrack = track;
-    _queue.clear();
-    _fillQueue();
+
+    // Do NOT clear or fill the queue. Preserve current queue state.
     notifyListeners();
+
     try {
-      await _audioService.playTrack(track);
+      await _audioService.playTrack(track, protectedTracks: _protectedTracks);
     } catch (e) {
       _handlePlaybackError(e);
     }
@@ -345,7 +355,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       // Repeat One (2) - just replay the current track
       if (_settings.repeatMode == 2) {
         await _audioService.seek(Duration.zero);
-        await _audioService.playTrack(_currentTrack!);
+        await _audioService.playTrack(_currentTrack!, protectedTracks: _protectedTracks);
         return;
       }
       _history.add(_currentTrack!);
@@ -360,7 +370,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       _fillQueue();
       notifyListeners();
       try {
-        await _audioService.playTrack(nextTrack);
+        await _audioService.playTrack(nextTrack, protectedTracks: _protectedTracks);
       } catch (e) {
         _handlePlaybackError(e);
       }
@@ -381,7 +391,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       _currentTrack = prevTrack;
       notifyListeners();
       try {
-        await _audioService.playTrack(prevTrack);
+        await _audioService.playTrack(prevTrack, protectedTracks: _protectedTracks);
       } catch (e) {
         _handlePlaybackError(e);
       }
@@ -401,7 +411,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
           _fillQueue();
           notifyListeners();
           try {
-            await _audioService.playTrack(prevTrack);
+            await _audioService.playTrack(prevTrack, protectedTracks: _protectedTracks);
           } catch (e) {
             _handlePlaybackError(e);
           }
