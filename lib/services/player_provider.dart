@@ -19,6 +19,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   late AudioPlayerService _audioService;
 
   Playlist? _currentPlaylist;
+  Playlist? _playingPlaylist;
   Track? _currentTrack;
   AppSettings _settings = AppSettings();
   bool _isPlaying = false;
@@ -81,6 +82,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Playlist? get currentPlaylist => _currentPlaylist;
+  Playlist? get playingPlaylist => _playingPlaylist;
   Track? get currentTrack => _currentTrack;
   AppSettings get settings => _settings;
   bool get isPlaying => _isPlaying;
@@ -104,6 +106,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (_currentPlaylist != null) {
         final state = _storageService.getPlaybackState(_currentPlaylist!.id);
         if (state != null && state.currentTrackId != null) {
+          _playingPlaylist = _currentPlaylist;
           _currentTrack = _storageService.getTrack(state.currentTrackId!);
           _position = state.position;
           _accumulatedTime = state.accumulatedTime;
@@ -291,6 +294,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
 
     if (startTrack != null) {
+      _playingPlaylist = playlist;
       if (_currentTrack != null && _currentTrack?.id != startTrack.id) {
         _history.add(_currentTrack!);
         _resetStatsForNewTrack();
@@ -321,6 +325,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> playTrackDirectly(Track track) async {
+    _playingPlaylist = _currentPlaylist;
     if (_currentTrack != null && _currentTrack?.id != track.id) {
       _history.add(_currentTrack!);
       _resetStatsForNewTrack();
