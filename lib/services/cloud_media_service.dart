@@ -57,9 +57,8 @@ class CloudMediaService {
 
     final schemeIdx = track.cloudPath.indexOf('://');
     if (schemeIdx == -1) {
-        _log.warning('Invalid cloudPath URI format: ${track.cloudPath}, falling back to mock download');
-        // Fallback for mock tracks
-        return _mockDownload(track, protectedTracks: protectedTracks);
+        _log.severe('Invalid cloudPath URI format: ${track.cloudPath}');
+        throw Exception('Invalid cloudPath URI format: ${track.cloudPath}');
     }
 
     final providerId = track.cloudPath.substring(0, schemeIdx);
@@ -67,11 +66,7 @@ class CloudMediaService {
 
     final provider = getProvider(providerId);
     if (provider == null) {
-      _log.warning('Provider not found: $providerId');
-      // Fallback for mock tracks
-      if (track.cloudPath.startsWith('http')) {
-         return _mockDownload(track);
-      }
+      _log.severe('Provider not found: $providerId');
       throw Exception('Provider not found: $providerId');
     }
 
@@ -193,21 +188,5 @@ class CloudMediaService {
     } catch (e) {
       _log.severe('Error during cache cleanup: $e');
     }
-  }
-
-  Future<String> _mockDownload(Track track, {List<Track>? protectedTracks}) async {
-    _log.info('Mock downloading track: ${track.id}');
-    await Future.delayed(const Duration(seconds: 1));
-    final cacheDir = await getCacheDir();
-
-    final file = File('${cacheDir.path}/${track.id}');
-    if (!file.existsSync()) {
-        file.writeAsBytesSync([0]);
-    }
-    _log.info('Mock download complete: ${file.path}');
-
-    await _cleanupCache(cacheDir, protectedTracks: protectedTracks);
-
-    return file.path;
   }
 }
