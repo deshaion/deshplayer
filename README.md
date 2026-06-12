@@ -26,6 +26,11 @@ For Android, follow the standard Flutter setup instructions provided by `flutter
 flutter build apk
 ```
 
+or 
+```bash
+flutter build apk --target-platform android-arm64
+```
+
 ### Linux
 
 To build the application for Linux, you need to install several development tools and system dependencies. Run the following commands in your terminal:
