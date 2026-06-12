@@ -11,6 +11,7 @@ import 'hive_storage_service.dart';
 import 'audio_player_service.dart';
 import 'package:logging/logging.dart';
 import 'stats_service.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 
 class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final _log = Logger('PlayerProvider');
@@ -112,11 +113,18 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
           if (_currentTrack != null) {
             try {
-              if (_currentTrack!.localCachePath != null &&
-                  await _audioService.player.setFilePath(
-                        _currentTrack!.localCachePath!,
-                      ) !=
-                      null) {
+              if (_currentTrack!.localCachePath != null) {
+                await _audioService.player.setAudioSource(
+                  AudioSource.uri(
+                    Uri.file(_currentTrack!.localCachePath!),
+                    tag: MediaItem(
+                      id: _currentTrack!.id,
+                      album: 'DeshPlayer',
+                      title: _currentTrack!.title ?? 'Unknown Track',
+                      artist: _currentTrack!.artist ?? 'Unknown Artist',
+                    ),
+                  ),
+                );
                 await _audioService.seek(_position);
               } else {
                 _log.severe('Something wrong with localCachePath of current track ${_currentTrack!.localCachePath}');
