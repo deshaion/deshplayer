@@ -32,6 +32,10 @@ class TrackListTile extends StatelessWidget {
       position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
       items: [
         const PopupMenuItem(
+          value: 'play_next',
+          child: Text('Play Next'),
+        ),
+        const PopupMenuItem(
           value: 'queue',
           child: Text('Add to Queue'),
         ),
@@ -52,9 +56,12 @@ class TrackListTile extends StatelessWidget {
 
     if (!context.mounted) return;
 
-    if (value == 'queue') {
+    if (value == 'play_next') {
+       player.playNextInQueue(track);
+       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${track.title ?? track.cloudPath.split('/').last.split('.').first} will play next')));
+    } else if (value == 'queue') {
        player.addToQueue(track);
-       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${track.title} added to queue')));
+       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${track.title ?? track.cloudPath.split('/').last.split('.').first} added to queue')));
     } else if (value == 'playlist') {
        _showPlaylistDialog(context, storage);
     } else if (value == 'remove') {
