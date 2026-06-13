@@ -273,6 +273,11 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  void playNextInQueue(Track track) {
+    _queue.insert(0, track);
+    notifyListeners();
+  }
+
   void addToQueue(Track track) {
     _queue.add(track);
     notifyListeners();
