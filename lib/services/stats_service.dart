@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:logging/logging.dart';
@@ -149,6 +150,51 @@ class StatsService {
           String cleanFolder = folder.replaceAll(RegExp(r'^/+|/+$'), '');
           if (cleanFolder.isEmpty) cleanFolder = 'Statistics';
 
+          final Map<String, String> remoteMd5s = {};
+
+          // --- DOWNLOAD PHASE ---
+          // Run download phase first to get current remote MD5s
+          try {
+              final nodes = await provider.listPath('disk:/$cleanFolder');
+              for (final node in nodes) {
+                  if (node.isDir || !node.name.endsWith('.json')) continue;
+
+                  final filename = node.name;
+                  final key = filename.substring(0, filename.length - 5); // remove .json
+
+                  final remoteMd5 = node.md5;
+                  if (remoteMd5 != null) {
+                      remoteMd5s[key] = remoteMd5;
+                  }
+
+                  // Ignore our own files for download
+                  if (key.endsWith('_$_deviceId')) continue;
+
+                  // Ensure it's a valid format YYYY-MM_deviceId
+                  if (key.split('_').length < 2) continue;
+
+                  if (remoteMd5 == null) continue; // Cannot check if changed easily, skip for now
+
+                  final localMd5 = _statsBox.get('$key-md5');
+                  if (localMd5 != remoteMd5) {
+                      _log.info('Downloading updated stats for $key');
+                      final downloadUrl = await provider.getDownloadUrl(node.path);
+                      if (downloadUrl != null) {
+                          final response = await http.get(Uri.parse(downloadUrl));
+                          if (response.statusCode == 200) {
+                              await _statsBox.put(key, response.body);
+                              await _statsBox.put('$key-md5', remoteMd5);
+                              _log.fine('Successfully downloaded and stored stats for $key');
+                          } else {
+                              _log.warning('Failed to download stats for $key, status: ${response.statusCode}');
+                          }
+                      }
+                  }
+              }
+          } catch (e) {
+              _log.warning('Failed to list or download stats from cloud', e);
+          }
+
           // --- UPLOAD PHASE ---
           // Yandex Disk requires parent folders to exist. We'll try to create it if we have a token.
           try {
@@ -172,6 +218,17 @@ class StatsService {
 
               final dataStr = _statsBox.get(keyStr);
               if (dataStr != null) {
+                  // Check if local content differs from remote using MD5
+                  final localContentBytes = utf8.encode(dataStr);
+                  final localMd5Str = md5.convert(localContentBytes).toString();
+
+                  final remoteMd5 = remoteMd5s[keyStr];
+
+                  if (remoteMd5 != null && remoteMd5.toLowerCase() == localMd5Str.toLowerCase()) {
+                      _log.fine('Skipping upload for $keyStr, unchanged.');
+                      continue;
+                  }
+
                   final file = File('${cacheDir.path}/$keyStr.json');
                   await file.writeAsString(dataStr);
 
@@ -181,44 +238,6 @@ class StatsService {
                       file.deleteSync();
                   }
               }
-          }
-
-          // --- DOWNLOAD PHASE ---
-          try {
-              final nodes = await provider.listPath('disk:/$cleanFolder');
-              for (final node in nodes) {
-                  if (node.isDir || !node.name.endsWith('.json')) continue;
-
-                  final filename = node.name;
-                  final key = filename.substring(0, filename.length - 5); // remove .json
-
-                  // Ignore our own files
-                  if (key.endsWith('_$_deviceId')) continue;
-
-                  // Ensure it's a valid format YYYY-MM_deviceId
-                  if (key.split('_').length < 2) continue;
-
-                  final remoteMd5 = node.md5;
-                  if (remoteMd5 == null) continue; // Cannot check if changed easily, skip for now
-
-                  final localMd5 = _statsBox.get('$key-md5');
-                  if (localMd5 != remoteMd5) {
-                      _log.info('Downloading updated stats for $key');
-                      final downloadUrl = await provider.getDownloadUrl(node.path);
-                      if (downloadUrl != null) {
-                          final response = await http.get(Uri.parse(downloadUrl));
-                          if (response.statusCode == 200) {
-                              await _statsBox.put(key, response.body);
-                              await _statsBox.put('$key-md5', remoteMd5);
-                              _log.fine('Successfully downloaded and stored stats for $key');
-                          } else {
-                              _log.warning('Failed to download stats for $key, status: ${response.statusCode}');
-                          }
-                      }
-                  }
-              }
-          } catch (e) {
-              _log.warning('Failed to list or download stats from cloud', e);
           }
 
           _log.info('Successfully synced stats to cloud');
