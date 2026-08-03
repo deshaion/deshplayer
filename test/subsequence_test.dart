@@ -10,4 +10,16 @@ void main() {
     expect(SearchUtils.matchesSubsequence('rtst', 'artist'), true);
     expect(SearchUtils.matchesSubsequence('123', 'song_1_final_23.mp3'), true);
   });
+
+  test('Match score logic', () {
+    expect(SearchUtils.calculateMatchScore('abc', 'cba'), 0);
+
+    // Higher score for exact matches
+    final exactScore = SearchUtils.calculateMatchScore('artist', 'artist');
+    final containsScore = SearchUtils.calculateMatchScore('artist', 'some artist song');
+    final subsequenceScore = SearchUtils.calculateMatchScore('art', 'a r t');
+
+    expect(exactScore > containsScore, true);
+    expect(containsScore > subsequenceScore, true);
+  });
 }
