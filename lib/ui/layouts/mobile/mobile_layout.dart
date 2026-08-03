@@ -316,9 +316,13 @@ class _MobileLayoutState extends State<MobileLayout> {
                         List<String> filteredTrackIds = selectedPlaylist.trackIds;
 
                         if (_searchQuery.trim().length >= 2) {
-                          filteredTrackIds = selectedPlaylist.trackIds.where((trackId) {
+                          final query = _searchQuery.trim();
+
+                          // 1. Calculate scores and keep matching tracks
+                          final List<MapEntry<String, int>> scoredTracks = [];
+                          for (final trackId in selectedPlaylist.trackIds) {
                             final track = player.getTrack(trackId);
-                            if (track == null) return false;
+                            if (track == null) continue;
 
                             String searchString = _searchCache[trackId] ?? '';
                             if (searchString.isEmpty) {
@@ -330,8 +334,18 @@ class _MobileLayoutState extends State<MobileLayout> {
                               _searchCache[trackId] = searchString;
                             }
 
-                            return SearchUtils.matchesSubsequence(_searchQuery.trim(), searchString);
-                          }).toList();
+                            final score = SearchUtils.calculateMatchScore(query, searchString);
+                            if (score > 0) {
+                              scoredTracks.add(MapEntry(trackId, score));
+                            }
+                          }
+
+                          // 2. Sort by score descending (stable sort is naturally achieved in dart for same scores,
+                          // but to be perfectly safe, since original order is insertion order, dart's sort is stable)
+                          scoredTracks.sort((a, b) => b.value.compareTo(a.value));
+
+                          // 3. Extract the track IDs
+                          filteredTrackIds = scoredTracks.map((e) => e.key).toList();
                         }
 
                         return ListView.builder(
