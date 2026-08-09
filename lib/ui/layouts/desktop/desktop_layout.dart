@@ -18,6 +18,7 @@ class DesktopLayout extends StatefulWidget {
   final Function(String) onAddPlaylist;
   final Function(String, String) onRenamePlaylist;
   final Function(String) onDeletePlaylist;
+  final VoidCallback onPlaylistsChanged;
 
   const DesktopLayout({
     super.key,
@@ -25,6 +26,7 @@ class DesktopLayout extends StatefulWidget {
     required this.onAddPlaylist,
     required this.onRenamePlaylist,
     required this.onDeletePlaylist,
+    required this.onPlaylistsChanged,
   });
 
   @override
@@ -150,7 +152,7 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                   MaterialPageRoute(
                                     builder: (context) => const ManagePlaylistsPage(),
                                   ),
-                                );
+                                ).then((_) => widget.onPlaylistsChanged());
                               },
                             ),
                           ],

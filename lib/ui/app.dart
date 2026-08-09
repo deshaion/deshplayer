@@ -106,12 +106,14 @@ class _DeshPlayerAppState extends State<DeshPlayerApp> {
                 onAddPlaylist: _addPlaylist,
                 onRenamePlaylist: _renamePlaylist,
                 onDeletePlaylist: _deletePlaylist,
+                onPlaylistsChanged: _loadData,
               ),
               desktopLayout: DesktopLayout(
                 playlists: _playlists,
                 onAddPlaylist: _addPlaylist,
                 onRenamePlaylist: _renamePlaylist,
                 onDeletePlaylist: _deletePlaylist,
+                onPlaylistsChanged: _loadData,
               ),
             ),
     );
