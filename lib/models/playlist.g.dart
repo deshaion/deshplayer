@@ -20,19 +20,25 @@ class PlaylistAdapter extends TypeAdapter<Playlist> {
       id: fields[0] as String,
       name: fields[1] as String,
       trackIds: (fields[2] as List).cast<String>(),
+      order: fields[3] == null ? 0 : fields[3] as int,
+      excludeFromStatistics: fields[4] == null ? false : fields[4] as bool,
     );
   }
 
   @override
   void write(BinaryWriter writer, Playlist obj) {
     writer
-      ..writeByte(3)
+      ..writeByte(5)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
       ..write(obj.name)
       ..writeByte(2)
-      ..write(obj.trackIds);
+      ..write(obj.trackIds)
+      ..writeByte(3)
+      ..write(obj.order)
+      ..writeByte(4)
+      ..write(obj.excludeFromStatistics);
   }
 
   @override
