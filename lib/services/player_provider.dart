@@ -185,7 +185,9 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
               _currentTrack!.duration.inSeconds > 0 &&
               _accumulatedTime.inSeconds >=
                   _currentTrack!.duration.inSeconds / 2) {
-            StatsService().recordPlay(_currentTrack!);
+            if (_playingPlaylist?.excludeFromStatistics != true) {
+              StatsService().recordPlay(_currentTrack!);
+            }
             _statsRecorded = true;
           }
         }
