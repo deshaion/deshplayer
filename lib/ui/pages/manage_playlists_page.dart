@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/hive_storage_service.dart';
 import '../../models/playlist.dart';
 import '../components/playlist_dialogs.dart';
+import '../components/slashed_icon.dart';
 
 class ManagePlaylistsPage extends StatefulWidget {
   const ManagePlaylistsPage({super.key});
@@ -62,6 +63,12 @@ class _ManagePlaylistsPageState extends State<ManagePlaylistsPage> {
     }
   }
 
+  Future<void> _toggleStatistics(Playlist playlist) async {
+    playlist.excludeFromStatistics = !playlist.excludeFromStatistics;
+    await HiveStorageService().savePlaylist(playlist);
+    _loadPlaylists();
+  }
+
   String _formatDuration(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
@@ -116,6 +123,18 @@ class _ManagePlaylistsPageState extends State<ManagePlaylistsPage> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          IconButton(
+                            icon: playlist.excludeFromStatistics
+                                ? SlashedIcon(
+                                    icon: Icons.leaderboard,
+                                    iconColor: Theme.of(context).iconTheme.color ?? Colors.black,
+                                  )
+                                : const Icon(Icons.leaderboard),
+                            onPressed: () => _toggleStatistics(playlist),
+                            tooltip: playlist.excludeFromStatistics
+                                ? 'Include in statistics'
+                                : 'Exclude from statistics',
+                          ),
                           IconButton(
                             icon: const Icon(Icons.edit),
                             onPressed: () => _renamePlaylist(playlist),
