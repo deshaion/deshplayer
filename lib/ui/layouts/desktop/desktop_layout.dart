@@ -321,6 +321,42 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                 },
                               ),
                             ),
+
+                            if (selectedPlaylist != null &&
+                                player.playingPlaylist?.id != selectedPlaylist.id &&
+                                (selectedPlaylist.isBookMode || (player.playingPlaylist?.isBookMode ?? false)) &&
+                                HiveStorageService().getPlaybackState(selectedPlaylist.id)?.currentTrackId != null)
+                              Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.primaryContainer,
+                                  borderRadius: BorderRadius.circular(8.0),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.menu_book),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        'Resume from the track',
+                                        style: TextStyle(
+                                          color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.play_circle_fill, size: 36),
+                                      color: Theme.of(context).colorScheme.primary,
+                                      onPressed: () {
+                                        player.resumePlaylist(selectedPlaylist);
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+
                             const Divider(height: 1),
                             Expanded(
                               child: Builder(

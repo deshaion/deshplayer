@@ -27,8 +27,11 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Duration _duration = Duration.zero;
 
   // Queue
-  final List<Track> _queue = [];
+  List<Track> _queue = [];
   final List<Track> _history = [];
+
+  // Isolated queue for Book Mode
+  List<Track>? _savedRegularQueue;
 
   List<Track> get _protectedTracks {
     final list = List<Track>.from(_queue);
@@ -213,17 +216,20 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _fillQueue() {
-    if (_currentPlaylist == null) return;
+    // If playing playlist is book mode, we fill queue from playing playlist
+    // ignoring shuffle/repeat
+    final targetPlaylist = _playingPlaylist ?? _currentPlaylist;
+    if (targetPlaylist == null) return;
 
     // We want to maintain a queue of upcoming tracks.
     // Let's keep at least 5 tracks in the queue.
     int targetQueueSize = 5;
 
     if (_queue.length < targetQueueSize) {
-      final ids = _currentPlaylist!.trackIds;
+      final ids = targetPlaylist.trackIds;
       if (ids.isEmpty) return;
 
-      if (_settings.shuffle) {
+      if (_settings.shuffle && !targetPlaylist.isBookMode) {
         final random = Random();
         while (_queue.length < targetQueueSize) {
           final nextId = ids[random.nextInt(ids.length)];
@@ -252,11 +258,11 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
         while (_queue.length < targetQueueSize) {
           startIdx++;
           if (startIdx >= ids.length) {
-            if (_settings.repeatMode == 1) {
+            if (_settings.repeatMode == 1 && !targetPlaylist.isBookMode) {
               // repeat all
               startIdx = 0;
             } else {
-              break; // Reached end of playlist without repeat
+              break; // Reached end of playlist without repeat or in book mode
             }
           }
           final track = _storageService.getTrack(ids[startIdx]);
@@ -291,7 +297,35 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  Future<void> playPlaylist(Playlist playlist, {Track? startTrack}) async {
+  Future<void> resumePlaylist(Playlist playlist) async {
+    final state = _storageService.getPlaybackState(playlist.id);
+    if (state != null && state.currentTrackId != null) {
+      final track = _storageService.getTrack(state.currentTrackId!);
+      if (track != null) {
+        _position = state.position;
+        _accumulatedTime = state.accumulatedTime;
+        _statsRecorded = state.statsRecorded;
+
+        await _audioService.seek(state.position);
+
+        // Start track but keep it paused initially? No, the requirement says:
+        // "When I click on the playlist with book view... resume block appears... play or go back"
+        // Wait, "if I select the playlist the last saved point is restored and playing is stopped."
+
+        // When clicking resume, it should start playing.
+        // We will call playPlaylist with the saved track.
+        await playPlaylist(playlist, startTrack: track, startPaused: false);
+        await seek(state.position);
+      }
+    } else if (playlist.trackIds.isNotEmpty) {
+      final track = _storageService.getTrack(playlist.trackIds.first);
+      if (track != null) {
+         await playPlaylist(playlist, startTrack: track);
+      }
+    }
+  }
+
+  Future<void> playPlaylist(Playlist playlist, {Track? startTrack, bool startPaused = false}) async {
     final isSamePlaylist = _currentPlaylist?.id == playlist.id;
 
     _currentPlaylist = playlist;
@@ -301,6 +335,24 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
 
     if (startTrack != null) {
+      // Check if we are switching between book mode and regular mode
+      final wasBookMode = _playingPlaylist?.isBookMode ?? false;
+      final isBookMode = playlist.isBookMode;
+
+      if (isBookMode && !wasBookMode) {
+        // Save the regular queue before starting book mode
+        _savedRegularQueue = List<Track>.from(_queue);
+        _queue.clear();
+      } else if (!isBookMode && wasBookMode) {
+        // Restore the regular queue if returning to a non-book playlist
+        if (_savedRegularQueue != null) {
+           _queue = List<Track>.from(_savedRegularQueue!);
+           _savedRegularQueue = null;
+        } else {
+           _queue.clear();
+        }
+      }
+
       _playingPlaylist = playlist;
       if (_currentTrack != null && _currentTrack?.id != startTrack.id) {
         _history.add(_currentTrack!);
@@ -308,7 +360,11 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
       _currentTrack = startTrack;
 
-      if (!isSamePlaylist) {
+      if (!isSamePlaylist && !isBookMode) {
+        _queue.clear();
+        _fillQueue();
+      } else if (isBookMode) {
+        // Re-fill queue to ensure it follows book mode constraints (sequential)
         _queue.clear();
         _fillQueue();
       }
@@ -317,7 +373,16 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       if (_currentTrack != null) {
         try {
-          await _audioService.playTrack(_currentTrack!, protectedTracks: _protectedTracks);
+          if (startPaused) {
+             // For startPaused, we only set source but don't play.
+             // We do this by calling playTrack but immediately pausing if possible,
+             // or better, handle it inside just_audio but playTrack automatically calls play.
+             // We will call playTrack and pause immediately for now to load it.
+             await _audioService.playTrack(_currentTrack!, protectedTracks: _protectedTracks);
+             await pause();
+          } else {
+             await _audioService.playTrack(_currentTrack!, protectedTracks: _protectedTracks);
+          }
         } catch (e) {
           _handlePlaybackError(e);
         }
@@ -332,6 +397,23 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> playTrackDirectly(Track track) async {
+    final wasBookMode = _playingPlaylist?.isBookMode ?? false;
+    final isBookMode = _currentPlaylist?.isBookMode ?? false;
+
+    if (isBookMode && !wasBookMode) {
+      // Save the regular queue before starting book mode
+      _savedRegularQueue = List<Track>.from(_queue);
+      _queue.clear();
+    } else if (!isBookMode && wasBookMode) {
+      // Restore the regular queue if returning to a non-book playlist
+      if (_savedRegularQueue != null) {
+         _queue = List<Track>.from(_savedRegularQueue!);
+         _savedRegularQueue = null;
+      } else {
+         _queue.clear();
+      }
+    }
+
     _playingPlaylist = _currentPlaylist;
     if (_currentTrack != null && _currentTrack?.id != track.id) {
       _history.add(_currentTrack!);
@@ -339,7 +421,12 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
     _currentTrack = track;
 
-    // Do NOT clear or fill the queue. Preserve current queue state.
+    if (isBookMode) {
+       _queue.clear();
+       _fillQueue();
+    }
+
+    // Preserve current queue state if it's a regular playlist.
     notifyListeners();
 
     try {

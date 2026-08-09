@@ -20,11 +20,15 @@ class Playlist {
   @HiveField(4, defaultValue: false)
   bool excludeFromStatistics;
 
+  @HiveField(5, defaultValue: false)
+  bool isBookMode;
+
   Playlist({
     required this.id,
     required this.name,
     required this.trackIds,
     this.order = 0,
     this.excludeFromStatistics = false,
+    this.isBookMode = false,
   });
 }
