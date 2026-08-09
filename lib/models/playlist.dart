@@ -14,9 +14,17 @@ class Playlist {
   @HiveField(2)
   List<String> trackIds;
 
+  @HiveField(3, defaultValue: 0)
+  int order;
+
+  @HiveField(4, defaultValue: false)
+  bool excludeFromStatistics;
+
   Playlist({
     required this.id,
     required this.name,
     required this.trackIds,
+    this.order = 0,
+    this.excludeFromStatistics = false,
   });
 }

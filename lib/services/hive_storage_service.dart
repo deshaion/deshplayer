@@ -79,7 +79,11 @@ class HiveStorageService {
   }
 
   // Playlists
-  List<Playlist> getPlaylists() => playlistsBox.values.toList();
+  List<Playlist> getPlaylists() {
+    final playlists = playlistsBox.values.toList();
+    playlists.sort((a, b) => a.order.compareTo(b.order));
+    return playlists;
+  }
   Playlist? getPlaylist(String id) => playlistsBox.get(id);
   Future<void> savePlaylist(Playlist playlist) => playlistsBox.put(playlist.id, playlist);
   Future<void> deletePlaylist(String id) => playlistsBox.delete(id);

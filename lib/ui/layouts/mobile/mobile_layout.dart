@@ -18,6 +18,7 @@ class MobileLayout extends StatefulWidget {
   final Function(String) onAddPlaylist;
   final Function(String, String) onRenamePlaylist;
   final Function(String) onDeletePlaylist;
+  final VoidCallback onPlaylistsChanged;
 
   const MobileLayout({
     super.key,
@@ -25,6 +26,7 @@ class MobileLayout extends StatefulWidget {
     required this.onAddPlaylist,
     required this.onRenamePlaylist,
     required this.onDeletePlaylist,
+    required this.onPlaylistsChanged,
   });
 
   @override
@@ -147,7 +149,7 @@ class _MobileLayoutState extends State<MobileLayout> {
                         MaterialPageRoute(
                           builder: (context) => const ManagePlaylistsPage(),
                         ),
-                      );
+                      ).then((_) => widget.onPlaylistsChanged());
                     },
                   ),
                 ],
