@@ -8,6 +8,17 @@ Deshplayer seamlessly synchronizes your media and data with cloud storage to pro
 - **Playback Statistics:** Track playback statistics (tracked uniquely by 'Artist - Title') are stored locally and synced to the cloud. This synchronization process utilizes MD5 hashes to optimize updates and minimize unnecessary network traffic.
 - **Automatic Track Sync:** Deshplayer automatically detects if a track file is removed from your cloud storage. If a track is deleted from the cloud, the player will seamlessly handle the playback error, automatically remove the track from your local library and all playlists, and skip to the next track.
 
+## Playlists & Book Mode
+
+Deshplayer supports organizing your tracks into custom playlists.
+
+To improve the experience for listening to podcasts or audiobooks, playlists can be toggled into **Book Mode** via the `Manage Playlists` page.
+
+When playing a Book Mode playlist:
+- **Sequential Playback:** Tracks are played sequentially, ignoring global shuffle or repeat settings.
+- **Isolated Queue:** The active queue for standard playlists is paused and saved in the background. Book mode generates its own isolated playback queue. When you switch back to playing a regular playlist, your original queue is restored seamlessly.
+- **Resume Capability:** If you switch to another playlist and return to a Book Mode playlist later, a "Resume" block will appear at the top of the track list (desktop) or below the control panel (mobile). This allows you to restore your exact playback position (including the paused track and time) with a single click.
+
 ## How to build it
 
 Before building for any platform, ensure you have Flutter installed and run `flutter doctor` to verify your environment is set up correctly.
