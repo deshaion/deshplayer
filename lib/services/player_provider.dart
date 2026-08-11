@@ -216,9 +216,15 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _fillQueue() {
-    // If playing playlist is book mode, we fill queue from playing playlist
-    // ignoring shuffle/repeat
-    final targetPlaylist = _playingPlaylist ?? _currentPlaylist;
+    Playlist? targetPlaylist;
+    if (_playingPlaylist?.isBookMode == true) {
+       targetPlaylist = _playingPlaylist;
+    } else if (_playingPlaylist?.isBookMode != true && _currentPlaylist?.isBookMode != true) {
+       targetPlaylist = _currentPlaylist;
+    } else if (_playingPlaylist?.isBookMode != true && _currentPlaylist?.isBookMode == true) {
+       targetPlaylist = _playingPlaylist;
+    }
+
     if (targetPlaylist == null) return;
 
     // We want to maintain a queue of upcoming tracks.
