@@ -103,13 +103,14 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     // Restore state
     if (_settings.lastActivePlaylistId != null) {
-      _currentPlaylist = _storageService.getPlaylist(
+      final activePlaylist = _storageService.getPlaylist(
         _settings.lastActivePlaylistId!,
       );
-      if (_currentPlaylist != null) {
-        final state = _storageService.getPlaybackState(_currentPlaylist!.id);
+      if (activePlaylist != null) {
+        _playingPlaylist = activePlaylist;
+        _currentPlaylist = activePlaylist;
+        final state = _storageService.getPlaybackState(activePlaylist.id);
         if (state != null && state.currentTrackId != null) {
-          _playingPlaylist = _currentPlaylist;
           _currentTrack = _storageService.getTrack(state.currentTrackId!);
           _position = state.position;
           _accumulatedTime = state.accumulatedTime;
@@ -216,14 +217,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _fillQueue() {
-    Playlist? targetPlaylist;
-    if (_playingPlaylist?.isBookMode == true) {
-       targetPlaylist = _playingPlaylist;
-    } else if (_playingPlaylist?.isBookMode != true && _currentPlaylist?.isBookMode != true) {
-       targetPlaylist = _currentPlaylist;
-    } else if (_playingPlaylist?.isBookMode != true && _currentPlaylist?.isBookMode == true) {
-       targetPlaylist = _playingPlaylist;
-    }
+    Playlist? targetPlaylist = _playingPlaylist;
 
     if (targetPlaylist == null) return;
 
@@ -317,79 +311,66 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
         // Wait, "if I select the playlist the last saved point is restored and playing is stopped."
 
         // When clicking resume, it should start playing.
-        // We will call playPlaylist with the saved track.
-        await playPlaylist(playlist, startTrack: track, startPaused: false);
+        await setActivePlaylist(playlist, startTrack: track);
         await seek(state.position);
       }
     } else if (playlist.trackIds.isNotEmpty) {
       final track = _storageService.getTrack(playlist.trackIds.first);
       if (track != null) {
-         await playPlaylist(playlist, startTrack: track);
+         await setActivePlaylist(playlist, startTrack: track);
       }
     }
   }
 
-  Future<void> playPlaylist(Playlist playlist, {Track? startTrack, bool startPaused = false}) async {
-    final isSamePlaylist = _currentPlaylist?.id == playlist.id;
-
+  void selectPlaylist(Playlist playlist) {
     _currentPlaylist = playlist;
+    notifyListeners();
+  }
+
+  Future<void> setActivePlaylist(Playlist playlist, {Track? startTrack, bool startPaused = false}) async {
     _settings.lastActivePlaylistId = playlist.id;
     _storageService.saveSettings(_settings);
 
-    notifyListeners();
+    final wasBookMode = _playingPlaylist?.isBookMode ?? false;
+    final isBookMode = playlist.isBookMode;
+
+    if (isBookMode && !wasBookMode) {
+      _savedRegularQueue = List<Track>.from(_queue);
+      _queue.clear();
+    } else if (!isBookMode && wasBookMode) {
+      if (_savedRegularQueue != null) {
+        _queue = List<Track>.from(_savedRegularQueue!);
+        _savedRegularQueue = null;
+      } else {
+        _queue.clear();
+      }
+    } else {
+       _queue.clear();
+    }
+
+    _playingPlaylist = playlist;
 
     if (startTrack != null) {
-      // Check if we are switching between book mode and regular mode
-      final wasBookMode = _playingPlaylist?.isBookMode ?? false;
-      final isBookMode = playlist.isBookMode;
-
-      if (isBookMode && !wasBookMode) {
-        // Save the regular queue before starting book mode
-        _savedRegularQueue = List<Track>.from(_queue);
-        _queue.clear();
-      } else if (!isBookMode && wasBookMode) {
-        // Restore the regular queue if returning to a non-book playlist
-        if (_savedRegularQueue != null) {
-           _queue = List<Track>.from(_savedRegularQueue!);
-           _savedRegularQueue = null;
-        } else {
-           _queue.clear();
-        }
-      }
-
-      _playingPlaylist = playlist;
       if (_currentTrack != null && _currentTrack?.id != startTrack.id) {
         _history.add(_currentTrack!);
         _resetStatsForNewTrack();
       }
       _currentTrack = startTrack;
+    }
 
-      if (!isSamePlaylist && !isBookMode) {
-        _queue.clear();
-        _fillQueue();
-      } else if (isBookMode) {
-        // Re-fill queue to ensure it follows book mode constraints (sequential)
-        _queue.clear();
-        _fillQueue();
-      }
+    _fillQueue();
+    notifyListeners();
 
-      notifyListeners();
-
-      if (_currentTrack != null) {
-        try {
-          if (startPaused) {
-             // For startPaused, we only set source but don't play.
-             // We do this by calling playTrack but immediately pausing if possible,
-             // or better, handle it inside just_audio but playTrack automatically calls play.
-             // We will call playTrack and pause immediately for now to load it.
-             await _audioService.playTrack(_currentTrack!, protectedTracks: _protectedTracks);
-             await pause();
-          } else {
-             await _audioService.playTrack(_currentTrack!, protectedTracks: _protectedTracks);
-          }
-        } catch (e) {
-          _handlePlaybackError(e);
+    if (startTrack != null && _currentTrack != null) {
+      try {
+        if (startPaused) {
+           await _audioService.playTrack(_currentTrack!, protectedTracks: _protectedTracks);
+           await pause();
+        } else {
+           await _audioService.playTrack(_currentTrack!, protectedTracks: _protectedTracks);
         }
+      } catch (e) {
+        _handlePlaybackError(e);
       }
     }
   }
@@ -401,36 +382,19 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> playTrackDirectly(Track track) async {
-    final wasBookMode = _playingPlaylist?.isBookMode ?? false;
-    final isBookMode = _currentPlaylist?.isBookMode ?? false;
-
-    if (isBookMode && !wasBookMode) {
-      // Save the regular queue before starting book mode
-      _savedRegularQueue = List<Track>.from(_queue);
-      _queue.clear();
-    } else if (!isBookMode && wasBookMode) {
-      // Restore the regular queue if returning to a non-book playlist
-      if (_savedRegularQueue != null) {
-         _queue = List<Track>.from(_savedRegularQueue!);
-         _savedRegularQueue = null;
-      } else {
-         _queue.clear();
+    if (_playingPlaylist == null) {
+      if (_currentPlaylist != null) {
+        await setActivePlaylist(_currentPlaylist!, startTrack: track);
       }
+      return;
     }
 
-    _playingPlaylist = _currentPlaylist;
     if (_currentTrack != null && _currentTrack?.id != track.id) {
       _history.add(_currentTrack!);
       _resetStatsForNewTrack();
     }
     _currentTrack = track;
 
-    if (isBookMode) {
-       _queue.clear();
-       _fillQueue();
-    }
-
-    // Preserve current queue state if it's a regular playlist.
     notifyListeners();
 
     try {
@@ -508,8 +472,8 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
     } else {
       // Fallback to legacy behaviour if history is empty (e.g. initial launch)
-      if (_currentPlaylist == null || _currentTrack == null) return;
-      final ids = _currentPlaylist!.trackIds;
+      if (_playingPlaylist == null || _currentTrack == null) return;
+      final ids = _playingPlaylist!.trackIds;
       final index = ids.indexOf(_currentTrack!.id);
       if (index > 0) {
         final prevTrack = _storageService.getTrack(ids[index - 1]);
@@ -575,9 +539,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _saveCurrentState() {
-    final targetPlaylist = (_playingPlaylist?.isBookMode == true || _currentPlaylist == null)
-        ? _playingPlaylist
-        : _currentPlaylist;
+    final targetPlaylist = _playingPlaylist;
 
     if (targetPlaylist != null && _currentTrack != null) {
       final state = pstate.PlaybackState(

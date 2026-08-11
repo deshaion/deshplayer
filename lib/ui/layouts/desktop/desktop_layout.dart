@@ -187,7 +187,7 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                     color: isSelected ? Theme.of(context).colorScheme.primary : null,
                                   ),
                                 ),
-                                onTap: () => player.playPlaylist(playlist),
+                                onTap: () => player.selectPlaylist(playlist),
                               ),
                             );
                           },
@@ -304,6 +304,22 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                           ),
                                           ElevatedButton.icon(
                                             onPressed: () {
+                                              player.setActivePlaylist(selectedPlaylist);
+                                            },
+                                            icon: const Icon(Icons.radio_button_checked),
+                                            label: const Text('Active'),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: player.playingPlaylist?.id == selectedPlaylist.id
+                                                  ? Theme.of(context).colorScheme.primary
+                                                  : null,
+                                              foregroundColor: player.playingPlaylist?.id == selectedPlaylist.id
+                                                  ? Theme.of(context).colorScheme.onPrimary
+                                                  : null,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          ElevatedButton.icon(
+                                            onPressed: () {
                                               Navigator.of(context).push(
                                                 MaterialPageRoute(
                                                   builder: (context) => CloudImportPage(playlist: selectedPlaylist),
@@ -322,7 +338,7 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                               ),
                             ),
 
-                            if (selectedPlaylist != null &&
+                            if (
                                 player.playingPlaylist?.id != selectedPlaylist.id &&
                                 (selectedPlaylist.isBookMode || (player.playingPlaylist?.isBookMode ?? false)) &&
                                 HiveStorageService().getPlaybackState(selectedPlaylist.id)?.currentTrackId != null)
@@ -422,11 +438,7 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                         playlist: selectedPlaylist,
                                         isSelected: isSelected,
                                         onTap: () {
-                                           if (selectedPlaylist.id == player.currentPlaylist?.id) {
-                                             player.playTrackDirectly(track);
-                                           } else {
-                                             player.playPlaylist(selectedPlaylist, startTrack: track);
-                                           }
+                                           player.playTrackDirectly(track);
                                         },
                                         onRemoveFromPlaylist: () {
                                            setState(() {
