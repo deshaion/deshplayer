@@ -575,9 +575,13 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _saveCurrentState() {
-    if (_currentPlaylist != null && _currentTrack != null) {
+    final targetPlaylist = (_playingPlaylist?.isBookMode == true || _currentPlaylist == null)
+        ? _playingPlaylist
+        : _currentPlaylist;
+
+    if (targetPlaylist != null && _currentTrack != null) {
       final state = pstate.PlaybackState(
-        playlistId: _currentPlaylist!.id,
+        playlistId: targetPlaylist.id,
         currentTrackId: _currentTrack!.id,
         position: _position,
         accumulatedTime: _accumulatedTime,
