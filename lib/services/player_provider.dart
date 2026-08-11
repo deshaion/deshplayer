@@ -312,8 +312,6 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
         _accumulatedTime = state.accumulatedTime;
         _statsRecorded = state.statsRecorded;
 
-        await _audioService.seek(state.position);
-
         // Start track but keep it paused initially? No, the requirement says:
         // "When I click on the playlist with book view... resume block appears... play or go back"
         // Wait, "if I select the playlist the last saved point is restored and playing is stopped."
