@@ -223,35 +223,45 @@ class _MobileLayoutState extends State<MobileLayout> {
                 player.playingPlaylist?.id != selectedPlaylist.id &&
                 (selectedPlaylist.isBookMode || (player.playingPlaylist?.isBookMode ?? false)) &&
                 HiveStorageService().getPlaybackState(selectedPlaylist.id)?.currentTrackId != null)
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(8.0),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.menu_book),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Resume from the track',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onPrimaryContainer,
-                          fontWeight: FontWeight.bold,
+              Builder(
+                builder: (context) {
+                  final state = HiveStorageService().getPlaybackState(selectedPlaylist.id);
+                  final track = state?.currentTrackId != null ? player.getTrack(state!.currentTrackId!) : null;
+                  final trackName = track?.title ?? track?.cloudPath.split('/').last.split('.').first ?? 'Unknown Track';
+
+                  return Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(8.0),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.menu_book),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Resume from track "$trackName"',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onPrimaryContainer,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                      ),
+                        IconButton(
+                          icon: const Icon(Icons.play_circle_fill, size: 36),
+                          color: Theme.of(context).colorScheme.primary,
+                          onPressed: () {
+                            player.resumePlaylist(selectedPlaylist);
+                          },
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.play_circle_fill, size: 36),
-                      color: Theme.of(context).colorScheme.primary,
-                      onPressed: () {
-                        player.resumePlaylist(selectedPlaylist);
-                      },
-                    ),
-                  ],
-                ),
+                  );
+                },
               ),
 
             // Playlist Name Header
