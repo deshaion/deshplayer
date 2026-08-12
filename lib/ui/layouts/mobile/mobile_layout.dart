@@ -182,7 +182,7 @@ class _MobileLayoutState extends State<MobileLayout> {
                         ),
                       ),
                       onTap: () {
-                        player.playPlaylist(playlist);
+                        player.selectPlaylist(playlist);
                         Navigator.of(context).pop();
                       },
                     ),
@@ -340,6 +340,23 @@ class _MobileLayoutState extends State<MobileLayout> {
                           const SizedBox(width: 8),
                           ElevatedButton.icon(
                             onPressed: () {
+                              player.setActivePlaylist(selectedPlaylist);
+                            },
+                            icon: const Icon(Icons.radio_button_checked, size: 16),
+                            label: const Text('Active'),
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              backgroundColor: player.playingPlaylist?.id == selectedPlaylist.id
+                                  ? Theme.of(context).colorScheme.primary
+                                  : null,
+                              foregroundColor: player.playingPlaylist?.id == selectedPlaylist.id
+                                  ? Theme.of(context).colorScheme.onPrimary
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          ElevatedButton.icon(
+                            onPressed: () {
                               Navigator.of(context).push(
                                 MaterialPageRoute(
                                   builder: (context) => CloudImportPage(playlist: selectedPlaylist),
@@ -411,11 +428,7 @@ class _MobileLayoutState extends State<MobileLayout> {
                               playlist: selectedPlaylist,
                               isSelected: isSelected,
                               onTap: () {
-                                if (selectedPlaylist.id == player.currentPlaylist?.id) {
-                                  player.playTrackDirectly(track);
-                                } else {
-                                  player.playPlaylist(selectedPlaylist, startTrack: track);
-                                }
+                                player.playTrackDirectly(track);
                               },
                               onRemoveFromPlaylist: () {
                                  setState(() {
