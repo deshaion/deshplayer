@@ -170,7 +170,19 @@ class _CloudImportPageState extends State<CloudImportPage> {
     if (_selectedProvider == null) return;
 
     // Check if it's audio
-    if (node.mimeType == null || !node.mimeType!.startsWith('audio/')) {
+    final hasAudioMime = node.mimeType != null && node.mimeType!.startsWith('audio/');
+
+    final lowerPath = node.path.toLowerCase();
+    final hasAudioExtension = lowerPath.endsWith('.m4a') ||
+                              lowerPath.endsWith('.mp3') ||
+                              lowerPath.endsWith('.ogg') ||
+                              lowerPath.endsWith('.flac') ||
+                              lowerPath.endsWith('.wav') ||
+                              lowerPath.endsWith('.aac') ||
+                              lowerPath.endsWith('.wma') ||
+                              lowerPath.endsWith('.alac');
+
+    if (!hasAudioMime && !hasAudioExtension) {
         _log.fine('Skipping non-audio file: ${node.path} (mimeType: ${node.mimeType})');
         return; // skip non-audio
     }
