@@ -187,7 +187,7 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                     color: isSelected ? Theme.of(context).colorScheme.primary : null,
                                   ),
                                 ),
-                                onTap: () => player.playPlaylist(playlist),
+                                onTap: () => player.selectPlaylist(playlist),
                               ),
                             );
                           },
@@ -248,6 +248,22 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                         const SizedBox(width: 16),
                                         ElevatedButton.icon(
                                           onPressed: () {
+                                            player.setActivePlaylist(selectedPlaylist);
+                                          },
+                                          icon: const Icon(Icons.radio_button_checked),
+                                          label: const Text('Active'),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: player.playingPlaylist?.id == selectedPlaylist.id
+                                                ? Theme.of(context).colorScheme.primary
+                                                : null,
+                                            foregroundColor: player.playingPlaylist?.id == selectedPlaylist.id
+                                                ? Theme.of(context).colorScheme.onPrimary
+                                                : null,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        ElevatedButton.icon(
+                                          onPressed: () {
                                             Navigator.of(context).push(
                                               MaterialPageRoute(
                                                 builder: (context) => CloudImportPage(playlist: selectedPlaylist),
@@ -304,6 +320,22 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                           ),
                                           ElevatedButton.icon(
                                             onPressed: () {
+                                              player.setActivePlaylist(selectedPlaylist);
+                                            },
+                                            icon: const Icon(Icons.radio_button_checked),
+                                            label: const Text('Active'),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: player.playingPlaylist?.id == selectedPlaylist.id
+                                                  ? Theme.of(context).colorScheme.primary
+                                                  : null,
+                                              foregroundColor: player.playingPlaylist?.id == selectedPlaylist.id
+                                                  ? Theme.of(context).colorScheme.onPrimary
+                                                  : null,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          ElevatedButton.icon(
+                                            onPressed: () {
                                               Navigator.of(context).push(
                                                 MaterialPageRoute(
                                                   builder: (context) => CloudImportPage(playlist: selectedPlaylist),
@@ -321,6 +353,52 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                 },
                               ),
                             ),
+
+                            if (
+                                player.playingPlaylist?.id != selectedPlaylist.id &&
+                                (selectedPlaylist.isBookMode || (player.playingPlaylist?.isBookMode ?? false)) &&
+                                HiveStorageService().getPlaybackState(selectedPlaylist.id)?.currentTrackId != null)
+                              Builder(
+                                builder: (context) {
+                                  final state = HiveStorageService().getPlaybackState(selectedPlaylist.id);
+                                  final track = state?.currentTrackId != null ? player.getTrack(state!.currentTrackId!) : null;
+                                  final trackName = track?.title ?? track?.cloudPath.split('/').last.split('.').first ?? 'Unknown Track';
+
+                                  return Container(
+                                    margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context).colorScheme.primaryContainer,
+                                      borderRadius: BorderRadius.circular(8.0),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.menu_book),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Text(
+                                            'Resume from track "$trackName"',
+                                            style: TextStyle(
+                                              color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.play_circle_fill, size: 36),
+                                          color: Theme.of(context).colorScheme.primary,
+                                          onPressed: () {
+                                            player.resumePlaylist(selectedPlaylist);
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+
                             const Divider(height: 1),
                             Expanded(
                               child: Builder(
@@ -376,11 +454,7 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                         playlist: selectedPlaylist,
                                         isSelected: isSelected,
                                         onTap: () {
-                                           if (selectedPlaylist.id == player.currentPlaylist?.id) {
-                                             player.playTrackDirectly(track);
-                                           } else {
-                                             player.playPlaylist(selectedPlaylist, startTrack: track);
-                                           }
+                                           player.playTrackDirectly(track);
                                         },
                                         onRemoveFromPlaylist: () {
                                            setState(() {

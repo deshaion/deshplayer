@@ -69,6 +69,12 @@ class _ManagePlaylistsPageState extends State<ManagePlaylistsPage> {
     _loadPlaylists();
   }
 
+  Future<void> _toggleBookMode(Playlist playlist) async {
+    playlist.isBookMode = !playlist.isBookMode;
+    await HiveStorageService().savePlaylist(playlist);
+    _loadPlaylists();
+  }
+
   String _formatDuration(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
@@ -134,6 +140,18 @@ class _ManagePlaylistsPageState extends State<ManagePlaylistsPage> {
                             tooltip: playlist.excludeFromStatistics
                                 ? 'Include in statistics'
                                 : 'Exclude from statistics',
+                          ),
+                          IconButton(
+                            icon: playlist.isBookMode
+                                ? const Icon(Icons.menu_book)
+                                : SlashedIcon(
+                                    icon: Icons.menu_book,
+                                    iconColor: Theme.of(context).iconTheme.color ?? Colors.black,
+                                  ),
+                            onPressed: () => _toggleBookMode(playlist),
+                            tooltip: playlist.isBookMode
+                                ? 'Disable book mode'
+                                : 'Enable book mode',
                           ),
                           IconButton(
                             icon: const Icon(Icons.edit),

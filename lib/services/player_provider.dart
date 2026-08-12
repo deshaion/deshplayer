@@ -27,8 +27,11 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Duration _duration = Duration.zero;
 
   // Queue
-  final List<Track> _queue = [];
+  List<Track> _queue = [];
   final List<Track> _history = [];
+
+  // Isolated queue for Book Mode
+  List<Track>? _savedRegularQueue;
 
   List<Track> get _protectedTracks {
     final list = List<Track>.from(_queue);
@@ -100,13 +103,14 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     // Restore state
     if (_settings.lastActivePlaylistId != null) {
-      _currentPlaylist = _storageService.getPlaylist(
+      final activePlaylist = _storageService.getPlaylist(
         _settings.lastActivePlaylistId!,
       );
-      if (_currentPlaylist != null) {
-        final state = _storageService.getPlaybackState(_currentPlaylist!.id);
+      if (activePlaylist != null) {
+        _playingPlaylist = activePlaylist;
+        _currentPlaylist = activePlaylist;
+        final state = _storageService.getPlaybackState(activePlaylist.id);
         if (state != null && state.currentTrackId != null) {
-          _playingPlaylist = _currentPlaylist;
           _currentTrack = _storageService.getTrack(state.currentTrackId!);
           _position = state.position;
           _accumulatedTime = state.accumulatedTime;
@@ -213,17 +217,19 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _fillQueue() {
-    if (_currentPlaylist == null) return;
+    Playlist? targetPlaylist = _playingPlaylist;
+
+    if (targetPlaylist == null) return;
 
     // We want to maintain a queue of upcoming tracks.
     // Let's keep at least 5 tracks in the queue.
     int targetQueueSize = 5;
 
     if (_queue.length < targetQueueSize) {
-      final ids = _currentPlaylist!.trackIds;
+      final ids = targetPlaylist.trackIds;
       if (ids.isEmpty) return;
 
-      if (_settings.shuffle) {
+      if (_settings.shuffle && !targetPlaylist.isBookMode) {
         final random = Random();
         while (_queue.length < targetQueueSize) {
           final nextId = ids[random.nextInt(ids.length)];
@@ -252,11 +258,11 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
         while (_queue.length < targetQueueSize) {
           startIdx++;
           if (startIdx >= ids.length) {
-            if (_settings.repeatMode == 1) {
+            if (_settings.repeatMode == 1 && !targetPlaylist.isBookMode) {
               // repeat all
               startIdx = 0;
             } else {
-              break; // Reached end of playlist without repeat
+              break; // Reached end of playlist without repeat or in book mode
             }
           }
           final track = _storageService.getTrack(ids[startIdx]);
@@ -291,36 +297,80 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  Future<void> playPlaylist(Playlist playlist, {Track? startTrack}) async {
-    final isSamePlaylist = _currentPlaylist?.id == playlist.id;
+  Future<void> resumePlaylist(Playlist playlist) async {
+    final state = _storageService.getPlaybackState(playlist.id);
+    if (state != null && state.currentTrackId != null) {
+      final track = _storageService.getTrack(state.currentTrackId!);
+      if (track != null) {
+        _position = state.position;
+        _accumulatedTime = state.accumulatedTime;
+        _statsRecorded = state.statsRecorded;
 
+        // Start track but keep it paused initially? No, the requirement says:
+        // "When I click on the playlist with book view... resume block appears... play or go back"
+        // Wait, "if I select the playlist the last saved point is restored and playing is stopped."
+
+        // When clicking resume, it should start playing.
+        await setActivePlaylist(playlist, startTrack: track);
+        await seek(state.position);
+      }
+    } else if (playlist.trackIds.isNotEmpty) {
+      final track = _storageService.getTrack(playlist.trackIds.first);
+      if (track != null) {
+         await setActivePlaylist(playlist, startTrack: track);
+      }
+    }
+  }
+
+  void selectPlaylist(Playlist playlist) {
     _currentPlaylist = playlist;
+    notifyListeners();
+  }
+
+  Future<void> setActivePlaylist(Playlist playlist, {Track? startTrack, bool startPaused = false}) async {
     _settings.lastActivePlaylistId = playlist.id;
     _storageService.saveSettings(_settings);
 
-    notifyListeners();
+    final wasBookMode = _playingPlaylist?.isBookMode ?? false;
+    final isBookMode = playlist.isBookMode;
+
+    if (isBookMode && !wasBookMode) {
+      _savedRegularQueue = List<Track>.from(_queue);
+      _queue.clear();
+    } else if (!isBookMode && wasBookMode) {
+      if (_savedRegularQueue != null) {
+        _queue = List<Track>.from(_savedRegularQueue!);
+        _savedRegularQueue = null;
+      } else {
+        _queue.clear();
+      }
+    } else {
+       _queue.clear();
+    }
+
+    _playingPlaylist = playlist;
 
     if (startTrack != null) {
-      _playingPlaylist = playlist;
       if (_currentTrack != null && _currentTrack?.id != startTrack.id) {
         _history.add(_currentTrack!);
         _resetStatsForNewTrack();
       }
       _currentTrack = startTrack;
+    }
 
-      if (!isSamePlaylist) {
-        _queue.clear();
-        _fillQueue();
-      }
+    _fillQueue();
+    notifyListeners();
 
-      notifyListeners();
-
-      if (_currentTrack != null) {
-        try {
-          await _audioService.playTrack(_currentTrack!, protectedTracks: _protectedTracks);
-        } catch (e) {
-          _handlePlaybackError(e);
+    if (startTrack != null && _currentTrack != null) {
+      try {
+        if (startPaused) {
+           await _audioService.playTrack(_currentTrack!, protectedTracks: _protectedTracks);
+           await pause();
+        } else {
+           await _audioService.playTrack(_currentTrack!, protectedTracks: _protectedTracks);
         }
+      } catch (e) {
+        _handlePlaybackError(e);
       }
     }
   }
@@ -332,14 +382,19 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> playTrackDirectly(Track track) async {
-    _playingPlaylist = _currentPlaylist;
+    if (_playingPlaylist == null) {
+      if (_currentPlaylist != null) {
+        await setActivePlaylist(_currentPlaylist!, startTrack: track);
+      }
+      return;
+    }
+
     if (_currentTrack != null && _currentTrack?.id != track.id) {
       _history.add(_currentTrack!);
       _resetStatsForNewTrack();
     }
     _currentTrack = track;
 
-    // Do NOT clear or fill the queue. Preserve current queue state.
     notifyListeners();
 
     try {
@@ -417,8 +472,8 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
     } else {
       // Fallback to legacy behaviour if history is empty (e.g. initial launch)
-      if (_currentPlaylist == null || _currentTrack == null) return;
-      final ids = _currentPlaylist!.trackIds;
+      if (_playingPlaylist == null || _currentTrack == null) return;
+      final ids = _playingPlaylist!.trackIds;
       final index = ids.indexOf(_currentTrack!.id);
       if (index > 0) {
         final prevTrack = _storageService.getTrack(ids[index - 1]);
@@ -484,9 +539,11 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _saveCurrentState() {
-    if (_currentPlaylist != null && _currentTrack != null) {
+    final targetPlaylist = _playingPlaylist;
+
+    if (targetPlaylist != null && _currentTrack != null) {
       final state = pstate.PlaybackState(
-        playlistId: _currentPlaylist!.id,
+        playlistId: targetPlaylist.id,
         currentTrackId: _currentTrack!.id,
         position: _position,
         accumulatedTime: _accumulatedTime,
