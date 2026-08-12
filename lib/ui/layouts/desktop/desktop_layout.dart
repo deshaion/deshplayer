@@ -248,6 +248,22 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                         const SizedBox(width: 16),
                                         ElevatedButton.icon(
                                           onPressed: () {
+                                            player.setActivePlaylist(selectedPlaylist);
+                                          },
+                                          icon: const Icon(Icons.radio_button_checked),
+                                          label: const Text('Active'),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: player.playingPlaylist?.id == selectedPlaylist.id
+                                                ? Theme.of(context).colorScheme.primary
+                                                : null,
+                                            foregroundColor: player.playingPlaylist?.id == selectedPlaylist.id
+                                                ? Theme.of(context).colorScheme.onPrimary
+                                                : null,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        ElevatedButton.icon(
+                                          onPressed: () {
                                             Navigator.of(context).push(
                                               MaterialPageRoute(
                                                 builder: (context) => CloudImportPage(playlist: selectedPlaylist),
