@@ -283,6 +283,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   void playNextInQueue(Track track) {
     _queue.insert(0, track);
+    _audioService.preCacheTrack(track, protectedTracks: _protectedTracks);
     notifyListeners();
   }
 
