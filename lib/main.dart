@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_soloud/flutter_soloud.dart';
 import 'services/hive_storage_service.dart';
 import 'services/stats_service.dart';
 import 'services/player_provider.dart';
 import 'ui/app.dart';
 import 'package:logging/logging.dart';
-import 'package:just_audio_media_kit/just_audio_media_kit.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 import 'models/app_log_record.dart';
 
 void main() async {
@@ -32,19 +31,8 @@ void main() async {
 
   storageService.checkTrackDb();
 
-  await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.ryanheise.bg_demo.channel.audio',
-    androidNotificationChannelName: 'Audio playback',
-    androidNotificationOngoing: true,
-  );
-
-  JustAudioMediaKit.ensureInitialized(
-    linux: true,
-    windows: false,
-    android: false,
-    iOS: false,
-    macOS: false,
-  );
+  await SoLoud.instance.init();
+  SoLoud.instance.setVisualizationEnabled(true);
 
   final statsService = StatsService();
   await statsService.init();

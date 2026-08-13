@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
+import 'package:flutter_soloud/flutter_soloud.dart';
 
 class MusicVisualizer extends StatefulWidget {
   final bool isPlaying;
@@ -27,15 +28,18 @@ class _MusicVisualizerState extends State<MusicVisualizer> with SingleTickerProv
   late List<double> _barHeights;
   late List<double> _targetBarHeights;
 
+  late AudioData _audioData;
+
   @override
   void initState() {
     super.initState();
     _barHeights = List.generate(widget.barCount, (index) => 0.1);
     _targetBarHeights = List.generate(widget.barCount, (index) => 0.1);
+    _audioData = AudioData(GetSamplesKind.linear);
 
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 150), // How fast bars update
+      duration: const Duration(milliseconds: 50), // How fast bars update
     )..addListener(() {
         setState(() {
           for (int i = 0; i < widget.barCount; i++) {
@@ -58,6 +62,24 @@ class _MusicVisualizerState extends State<MusicVisualizer> with SingleTickerProv
   }
 
   void _generateNewTargets() {
+    if (SoLoud.instance.isInitialized) {
+      try {
+        _audioData.updateSamples();
+        final rawData = _audioData.getAudioData();
+        if (rawData.isNotEmpty) {
+            for (int i = 0; i < widget.barCount; i++) {
+               int index = (i * rawData.length / widget.barCount).floor();
+               if (index >= rawData.length) index = rawData.length - 1;
+               // FFT values are usually between 0 and 255.
+               _targetBarHeights[i] = (rawData[index] / 255.0).clamp(0.1, 1.0);
+            }
+            return;
+        }
+      } catch (e) {
+        // Fallback to random if error
+      }
+    }
+
     for (int i = 0; i < widget.barCount; i++) {
       // Random height between 0.1 and 1.0
       _targetBarHeights[i] = _random.nextDouble() * 0.9 + 0.1;
@@ -94,6 +116,7 @@ class _MusicVisualizerState extends State<MusicVisualizer> with SingleTickerProv
 
   @override
   void dispose() {
+    _audioData.dispose();
     _controller.dispose();
     super.dispose();
   }

@@ -1,21 +1,34 @@
 import 'dart:io';
-import 'package:just_audio/just_audio.dart';
 import '../models/track.dart';
 import 'hive_storage_service.dart';
 import 'cloud_media_service.dart';
 import 'metadata_service.dart';
 import 'dart:async';
 import 'package:logging/logging.dart';
-import 'package:just_audio_background/just_audio_background.dart';
+import 'package:audio_service/audio_service.dart';
+import 'desh_audio_handler.dart';
 
 class AudioPlayerService {
   final _log = Logger('AudioPlayerService');
-  final AudioPlayer player = AudioPlayer();
   final HiveStorageService storageService;
   final CloudMediaService cloudMediaService = CloudMediaService();
   final MetadataService metadataService = MetadataService();
 
+  late final DeshAudioHandler audioHandler;
+
   AudioPlayerService(this.storageService);
+
+  Future<void> init() async {
+    final handler = await AudioService.init(
+      builder: () => DeshAudioHandler(),
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'com.ryanheise.bg_demo.channel.audio',
+        androidNotificationChannelName: 'Audio playback',
+        androidNotificationOngoing: true,
+      ),
+    );
+    audioHandler = handler ;
+  }
 
   Future<void> preCacheTrack(Track track, {List<Track>? protectedTracks}) async {
     if (track.localCachePath != null &&
@@ -29,7 +42,6 @@ class AudioPlayerService {
       track.localCachePath = localPath;
       await storageService.saveTrack(track);
 
-      // Check if we need to sync metadata (even if played from cache)
       if (track.artist == null || track.duration.inSeconds == 0) {
         syncMetadataAsync(track);
       }
@@ -42,70 +54,36 @@ class AudioPlayerService {
     _log.info('Attempting to play track: ${track.id} (${track.title})');
 
     try {
+      String localPath;
+      String? downloadUrl;
+
       if (track.localCachePath != null &&
           File(track.localCachePath!).existsSync()) {
         _log.fine('Playing from local cache: ${track.localCachePath}');
-        // Play from cache
-        await player.setAudioSource(
-          AudioSource.uri(
-            Uri.file(track.localCachePath!),
-            tag: MediaItem(
-              id: track.id,
-              album: 'DeshPlayer',
-              title: track.title ?? 'Unknown Track',
-              artist: track.artist ?? 'Unknown Artist',
-            ),
-          ),
-        );
-        track.lastAccessed = DateTime.now();
-        await storageService.saveTrack(track);
+        localPath = track.localCachePath!;
+        downloadUrl = "local"; // not needed for local playback
       } else {
-        _log.fine(
-          'Track not in local cache, requesting download from cloud: ${track.cloudPath}',
-        );
-        // Use dedicated service to download
-        final localPath = await cloudMediaService.downloadAndCacheTrack(track, protectedTracks: protectedTracks);
-        track.localCachePath = localPath;
-        track.lastAccessed = DateTime.now();
-
-        try {
-          await player.setAudioSource(
-            AudioSource.uri(
-              Uri.file(localPath),
-              tag: MediaItem(
-                id: track.id,
-                album: 'DeshPlayer',
-                title: track.title ?? 'Unknown Track',
-                artist: track.artist ?? 'Unknown Artist',
-              ),
-            ),
-          );
-          _log.fine('Successfully set file path: $localPath');
-        } catch (e, stackTrace) {
-          _log.warning(
-            'Error setting file path (might be mock): $localPath',
-            e,
-            stackTrace,
-          );
-          // Rethrow if it's not a mock exception
-          if (e is! UnsupportedError && e.toString() != 'Mock Exception') {
-            rethrow;
-          }
-        }
-        await storageService.saveTrack(track);
+        _log.fine('Track not in local cache, requesting download URL from cloud: ${track.cloudPath}');
+        downloadUrl = await cloudMediaService.getDownloadUrlForTrack(track);
+        final cacheDir = await cloudMediaService.getCacheDir();
+        localPath = '${cacheDir.path}/${track.id}';
       }
 
-      // Check if we need to sync metadata (even if played from cache)
+      await audioHandler.playTrack(track, downloadUrl: downloadUrl, localPath: localPath);
+
+      // Update metadata and tracking
+      track.localCachePath = localPath;
+      track.lastAccessed = DateTime.now();
+      await storageService.saveTrack(track);
+
       if (track.artist == null || track.duration.inSeconds == 0) {
         syncMetadataAsync(track);
       }
 
-      _log.info('Starting playback for track: ${track.id}');
-      player.play();
+      _log.info('Started playback for track: ${track.id}');
       storageService.addToHistory(track.id);
     } catch (e, stackTrace) {
       _log.severe('Error playing track: ${track.id}', e, stackTrace);
-      // Rethrow to let the provider handle skipping to next track
       rethrow;
     }
   }
@@ -132,22 +110,18 @@ class AudioPlayerService {
   }
 
   Future<void> pause() async {
-    await player.pause();
+    await audioHandler.pause();
+  }
+
+  Future<void> play() async {
+    await audioHandler.play();
   }
 
   Future<void> seek(Duration position) async {
-    await player.seek(position);
+    await audioHandler.seek(position);
   }
 
   Future<void> setVolume(double volume) async {
-    await player.setVolume(volume);
-  }
-
-  Future<void> setLoopMode(LoopMode mode) async {
-    await player.setLoopMode(mode);
-  }
-
-  Future<void> setShuffleModeEnabled(bool enabled) async {
-    await player.setShuffleModeEnabled(enabled);
+    audioHandler.setVolume(volume);
   }
 }

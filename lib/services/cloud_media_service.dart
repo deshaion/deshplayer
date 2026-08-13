@@ -189,4 +189,33 @@ class CloudMediaService {
       _log.severe('Error during cache cleanup: $e');
     }
   }
+
+  Future<String> getDownloadUrlForTrack(Track track) async {
+    final schemeIdx = track.cloudPath.indexOf('://');
+    if (schemeIdx == -1) {
+        throw Exception('Invalid cloudPath URI format: ${track.cloudPath}');
+    }
+
+    final providerId = track.cloudPath.substring(0, schemeIdx);
+    final path = track.cloudPath.substring(schemeIdx + 3);
+
+    final provider = getProvider(providerId);
+    if (provider == null) {
+      throw Exception('Provider not found: $providerId');
+    }
+
+    String? downloadUrl;
+    try {
+      downloadUrl = await provider.getDownloadUrl(path);
+    } on CloudFileNotFoundException {
+      await HiveStorageService().deleteTrackGlobally(track.id);
+      throw TrackRemovedException('Track "${track.title}" was removed from the cloud and has been deleted from your library.');
+    }
+
+    if (downloadUrl == null) {
+      throw Exception('No download URL obtained');
+    }
+
+    return downloadUrl;
+  }
 }
