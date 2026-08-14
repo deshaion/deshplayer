@@ -50,7 +50,7 @@ class AudioPlayerService {
     }
   }
 
-  Future<void> playTrack(Track track, {List<Track>? protectedTracks}) async {
+  Future<void> playTrack(Track track, {List<Track>? protectedTracks, bool startPaused = false}) async {
     _log.info('Attempting to play track: ${track.id} (${track.title})');
 
     try {
@@ -69,7 +69,7 @@ class AudioPlayerService {
         localPath = '${cacheDir.path}/${track.id}';
       }
 
-      await audioHandler.playTrack(track, downloadUrl: downloadUrl, localPath: localPath);
+      await audioHandler.playTrack(track, downloadUrl: downloadUrl, localPath: localPath, startPaused: startPaused);
 
       // Update metadata and tracking
       track.localCachePath = localPath;
