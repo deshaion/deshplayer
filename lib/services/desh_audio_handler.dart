@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
@@ -8,14 +9,17 @@ import 'package:logging/logging.dart';
 import '../models/track.dart';
 
 class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
+  static const _decodedBytesPerSecond = 48000 * 2 * 4;
+  static const _minimumPreservedBufferBytes = 100 * 1024 * 1024;
+  static const _unknownDurationExpansionFactor = 64;
+
   final _log = Logger('DeshAudioHandler');
 
   SoundHandle? _currentSoundHandle;
   AudioSource? _currentAudioSource;
 
-  // Need to hold onto a subscription to cancel it if skipped
   StreamSubscription<List<int>>? _httpSubscription;
-  Completer<void>? _streamCompleter;
+  IOSink? _activeSink;
   bool _isDisposed = false;
 
   DeshAudioHandler() {
@@ -25,6 +29,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   Future<void> _initAudioSession() async {
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
+
     session.interruptionEventStream.listen((event) {
       if (event.begin) {
         switch (event.type) {
@@ -53,66 +58,110 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     });
   }
 
-  Future<void> playTrack(Track track, {required String downloadUrl, required String localPath, bool startPaused = false}) async {
-    _isDisposed = false;
-    playbackState.add(playbackState.value.copyWith(
-      processingState: AudioProcessingState.loading,
-      playing: false,
-    ));
-
-    mediaItem.add(MediaItem(
-      id: track.id,
-      album: 'DeshPlayer',
-      title: track.title ?? 'Unknown Track',
-      artist: track.artist ?? 'Unknown Artist',
-      duration: track.duration.inSeconds > 0 ? track.duration : null,
-    ));
-
+  Future<void> playTrack(
+    Track track, {
+    required String downloadUrl,
+    required String localPath,
+    bool startPaused = false,
+  }) async {
     await _stopCurrentPlayback();
+
+    _isDisposed = false;
+    playbackState.add(
+      playbackState.value.copyWith(
+        processingState: AudioProcessingState.loading,
+        playing: false,
+      ),
+    );
+
+    mediaItem.add(
+      MediaItem(
+        id: track.id,
+        album: 'DeshPlayer',
+        title: track.title ?? 'Unknown Track',
+        artist: track.artist ?? 'Unknown Artist',
+        duration: track.duration.inSeconds > 0 ? track.duration : null,
+      ),
+    );
 
     final finalFile = File(localPath);
 
     try {
-      if (finalFile.existsSync()) {
-        _log.info('Playing from local cache: ${finalFile.path}');
-        _currentAudioSource = await SoLoud.instance.loadFile(finalFile.path);
-        if (_currentAudioSource != null && !_isDisposed) {
-          _currentSoundHandle = SoLoud.instance.play(
-            _currentAudioSource!,
-            paused: startPaused,
+      bool loadedFromCache = false;
+
+      // 1. Try playing from local cache if valid
+      if (await finalFile.exists()) {
+        if (await finalFile.length() == 0) {
+          _log.warning(
+            'Cache file is empty (0 bytes). Deleting: ${finalFile.path}',
           );
-          _setPlayingState(!startPaused);
+          await finalFile.delete();
+        } else {
+          try {
+            _currentAudioSource = await SoLoud.instance.loadFile(
+              finalFile.path,
+            );
+            _log.info('Playing from local cache: ${finalFile.path}');
+            if (_currentAudioSource != null && !_isDisposed) {
+              _currentSoundHandle = SoLoud.instance.play(
+                _currentAudioSource!,
+                paused: startPaused,
+              );
+              _setPlayingState(!startPaused);
+              loadedFromCache = true;
+            }
+          } catch (e) {
+            _log.severe(
+              'Cache file appears corrupted ($e). Deleting and re-downloading...',
+            );
+            if (await finalFile.exists()) {
+              await finalFile.delete();
+            }
+          }
         }
-      } else {
+      }
+
+      // 2. Stream and cache if not loaded from cache
+      if (!loadedFromCache && !_isDisposed) {
         _log.info('Streaming and caching to: ${finalFile.path}');
-        await _progressiveDiskCacheStream(downloadUrl, finalFile, startPaused);
+        await _progressiveDiskCacheStream(
+          downloadUrl,
+          finalFile,
+          startPaused,
+          track.duration,
+        );
       }
 
       if (!_isDisposed) {
         _checkCompletion();
       }
-
     } catch (e) {
       _log.severe('Error playing track: $e');
-      if (e.toString().contains('Playback stopped')) return; // Ignore cancellation
-      playbackState.add(playbackState.value.copyWith(
-        processingState: AudioProcessingState.error,
-        errorMessage: e.toString(),
-      ));
+      if (e.toString().contains('Playback stopped')) return;
+      playbackState.add(
+        playbackState.value.copyWith(
+          processingState: AudioProcessingState.error,
+          errorMessage: e.toString(),
+        ),
+      );
     }
   }
 
   Timer? _completionTimer;
   void _checkCompletion() {
     _completionTimer?.cancel();
-    _completionTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+    _completionTimer = Timer.periodic(const Duration(milliseconds: 500), (
+      timer,
+    ) {
       if (_currentSoundHandle != null) {
         if (!SoLoud.instance.getIsValidVoiceHandle(_currentSoundHandle!)) {
-           _setPlayingState(false);
-           playbackState.add(playbackState.value.copyWith(
-             processingState: AudioProcessingState.completed,
-           ));
-           timer.cancel();
+          _setPlayingState(false);
+          playbackState.add(
+            playbackState.value.copyWith(
+              processingState: AudioProcessingState.completed,
+            ),
+          );
+          timer.cancel();
         }
       } else {
         timer.cancel();
@@ -120,10 +169,15 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     });
   }
 
-  Future<void> _progressiveDiskCacheStream(String downloadUrl, File finalFile, bool startPaused) async {
+  Future<void> _progressiveDiskCacheStream(
+    String downloadUrl,
+    File finalFile,
+    bool startPaused,
+    Duration trackDuration,
+  ) async {
     final tempFile = File('${finalFile.path}.tmp');
     if (await tempFile.exists()) {
-      await tempFile.delete(); // clear dirty state
+      await tempFile.delete();
     }
 
     final request = http.Request('GET', Uri.parse(downloadUrl));
@@ -138,102 +192,155 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       rethrow;
     }
 
-    IOSink sink;
+    late final IOSink sink;
     try {
-       sink = tempFile.openWrite();
+      sink = tempFile.openWrite(mode: FileMode.write);
+      _activeSink = sink;
     } catch (e) {
-       _log.severe('Could not open temp file for writing: $e');
-       rethrow;
+      _log.severe('Could not open temp file for writing: $e');
+      rethrow;
     }
 
-    int bytesDownloaded = 0;
-    bool hasStartedPlayback = false;
+    late final AudioSource source;
+    final maxBufferSizeBytes = _preservedBufferSizeBytes(
+      trackDuration,
+      response.contentLength,
+    );
+    _log.fine(
+      'Allocating a preserved stream capacity of $maxBufferSizeBytes bytes',
+    );
+    source = SoLoud.instance.setBufferStream(
+      format: BufferType.auto,
+      bufferingType: BufferingType.preserved,
+      bufferingTimeNeeds: 2,
+      maxBufferSizeBytes: maxBufferSizeBytes,
+      onBuffering: (isBuffering, handle, time) {
+        if (_isDisposed || _currentAudioSource != source) return;
+        playbackState.add(
+          playbackState.value.copyWith(
+            processingState: isBuffering
+                ? AudioProcessingState.buffering
+                : AudioProcessingState.ready,
+          ),
+        );
+      },
+    );
 
-    // Use a completer to block playTrack until initial buffer is ready or stream completes
-    _streamCompleter = Completer<void>();
+    if (_isDisposed) {
+      await SoLoud.instance.disposeSource(source);
+      return;
+    }
 
-    _httpSubscription = response.stream.listen((chunk) async {
-      sink.add(chunk);
-      bytesDownloaded += chunk.length;
+    _currentAudioSource = source;
+    _currentSoundHandle = SoLoud.instance.play(source, paused: startPaused);
+    _setPlayingState(!startPaused);
 
-      // Once we have ~256 KB, start playback from disk
-      if (!hasStartedPlayback && bytesDownloaded >= 256 * 1024) {
-        hasStartedPlayback = true;
-        await sink.flush();
-
+    var audioDataRejected = false;
+    _httpSubscription = response.stream.listen(
+      (chunk) {
+        if (_isDisposed || _currentAudioSource != source) return;
+        sink.add(chunk);
+        if (audioDataRejected) return;
         try {
-          if (!_isDisposed) {
-            _currentAudioSource = await SoLoud.instance.loadFile(
-              tempFile.path,
-              mode: LoadMode.disk,
-            );
-
-            if (_currentAudioSource != null && !_isDisposed) {
-              _currentSoundHandle = SoLoud.instance.play(
-                _currentAudioSource!,
-                paused: startPaused,
-              );
-              _setPlayingState(!startPaused);
-            }
-          }
-          if (_streamCompleter != null && !_streamCompleter!.isCompleted) _streamCompleter!.complete();
+          SoLoud.instance.addAudioDataStream(source, Uint8List.fromList(chunk));
         } catch (e) {
-           _log.warning('SoLoud loadFile error: $e');
-           if (_streamCompleter != null && !_streamCompleter!.isCompleted) _streamCompleter!.completeError(e);
+          audioDataRejected = true;
+          _log.severe('Could not add audio data to the SoLoud stream: $e');
+          playbackState.add(
+            playbackState.value.copyWith(
+              processingState: AudioProcessingState.error,
+              errorMessage: e.toString(),
+            ),
+          );
         }
-      }
-    }, onDone: () async {
-      _log.info('Download stream finished');
-      try {
-        await sink.flush();
-        await sink.close();
-        if (await tempFile.exists()) {
-          // If we never started playback because file was < 256KB, do it now
-          if (!hasStartedPlayback && !_isDisposed) {
-             _currentAudioSource = await SoLoud.instance.loadFile(tempFile.path);
-             if (_currentAudioSource != null) {
-               _currentSoundHandle = SoLoud.instance.play(
-                 _currentAudioSource!,
-                 paused: startPaused,
-               );
-               _setPlayingState(!startPaused);
-             }
-          }
-          await tempFile.rename(finalFile.path);
-          _log.info('Track successfully cached to: ${finalFile.path}');
-        }
-        if (_streamCompleter != null && !_streamCompleter!.isCompleted) _streamCompleter!.complete();
-      } catch (e) {
-        _log.warning('Stream finalizing error: $e');
-        if (_streamCompleter != null && !_streamCompleter!.isCompleted) _streamCompleter!.completeError(e);
-      }
-    }, onError: (e) async {
-      _log.warning('Stream interrupted: $e');
-      try { await sink.close(); } catch (_) {}
-      if (await tempFile.exists()) {
-        await tempFile.delete();
-      }
-      if (_streamCompleter != null && !_streamCompleter!.isCompleted) _streamCompleter!.completeError(e);
-    });
+      },
+      onDone: () async {
+        _log.info('Download stream finished');
+        try {
+          await sink.flush();
+          await sink.close();
+          if (_activeSink == sink) _activeSink = null;
 
-    // Wait for the stream to either reach 256kb or finish (or error)
-    await _streamCompleter!.future;
+          if (!audioDataRejected &&
+              !_isDisposed &&
+              _currentAudioSource == source) {
+            SoLoud.instance.setDataIsEnded(source);
+          }
+          if (!_isDisposed &&
+              _currentAudioSource == source &&
+              await tempFile.exists()) {
+            await tempFile.rename(finalFile.path);
+            _log.info('Track successfully cached to: ${finalFile.path}');
+          }
+        } catch (e) {
+          _log.warning('Stream finalizing error: $e');
+        }
+      },
+      onError: (e) async {
+        _log.warning('Stream interrupted: $e');
+        try {
+          await sink.close();
+          if (_activeSink == sink) _activeSink = null;
+        } catch (_) {}
+
+        if (await tempFile.exists()) {
+          await tempFile.delete();
+        }
+        if (!_isDisposed && _currentAudioSource == source) {
+          playbackState.add(
+            playbackState.value.copyWith(
+              processingState: AudioProcessingState.error,
+              errorMessage: e.toString(),
+            ),
+          );
+        }
+      },
+      cancelOnError: true,
+    );
+  }
+
+  int _preservedBufferSizeBytes(Duration duration, int? compressedSizeBytes) {
+    if (duration > Duration.zero) {
+      // SoLoud stores decoded samples as 32-bit floats. Use a 48 kHz stereo
+      // upper bound and leave room for imprecise/rounded track metadata.
+      final durationWithMargin = duration + const Duration(seconds: 30);
+      final decodedSize =
+          durationWithMargin.inMilliseconds * _decodedBytesPerSecond ~/ 1000;
+      return decodedSize < _minimumPreservedBufferBytes
+          ? _minimumPreservedBufferBytes
+          : decodedSize;
+    }
+
+    // A compressed stream generally does not expose a reliable duration early
+    // enough to resize the SoLoud stream. The limit does not allocate memory;
+    // it only caps how much decoded PCM the preserved stream may retain.
+    final estimatedSize =
+        (compressedSizeBytes ?? 0) * _unknownDurationExpansionFactor;
+    return estimatedSize < _minimumPreservedBufferBytes
+        ? _minimumPreservedBufferBytes
+        : estimatedSize;
   }
 
   Future<void> _stopCurrentPlayback() async {
     _isDisposed = true;
     _completionTimer?.cancel();
-    _httpSubscription?.cancel();
-    if (_streamCompleter != null && !_streamCompleter!.isCompleted) {
-        _streamCompleter!.completeError(Exception("Playback stopped"));
-    }
+
+    await _httpSubscription?.cancel();
+    _httpSubscription = null;
+
+    try {
+      await _activeSink?.close();
+    } catch (_) {}
+    _activeSink = null;
+
     if (_currentSoundHandle != null) {
       SoLoud.instance.stop(_currentSoundHandle!);
       _currentSoundHandle = null;
     }
+
     if (_currentAudioSource != null) {
       try {
-         await SoLoud.instance.disposeSource(_currentAudioSource!);
+        await SoLoud.instance.disposeSource(_currentAudioSource!);
       } catch (_) {}
       _currentAudioSource = null;
     }
@@ -241,7 +348,8 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
 
   @override
   Future<void> play() async {
-    if (_currentSoundHandle != null) {
+    if (_currentSoundHandle != null &&
+        SoLoud.instance.getIsValidVoiceHandle(_currentSoundHandle!)) {
       SoLoud.instance.setPause(_currentSoundHandle!, false);
       _setPlayingState(true);
     }
@@ -249,7 +357,8 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
 
   @override
   Future<void> pause() async {
-    if (_currentSoundHandle != null) {
+    if (_currentSoundHandle != null &&
+        SoLoud.instance.getIsValidVoiceHandle(_currentSoundHandle!)) {
       SoLoud.instance.setPause(_currentSoundHandle!, true);
       _setPlayingState(false);
     }
@@ -259,48 +368,50 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   Future<void> stop() async {
     await _stopCurrentPlayback();
     _setPlayingState(false);
-    playbackState.add(playbackState.value.copyWith(
-      processingState: AudioProcessingState.idle,
-    ));
+    playbackState.add(
+      playbackState.value.copyWith(processingState: AudioProcessingState.idle),
+    );
     await super.stop();
   }
 
   @override
   Future<void> seek(Duration position) async {
-    if (_currentSoundHandle != null) {
+    if (_currentSoundHandle != null &&
+        SoLoud.instance.getIsValidVoiceHandle(_currentSoundHandle!)) {
       SoLoud.instance.seek(_currentSoundHandle!, position);
-      playbackState.add(playbackState.value.copyWith(
-        updatePosition: position,
-      ));
+      playbackState.add(playbackState.value.copyWith(updatePosition: position));
     }
   }
 
   void setVolume(double volume) {
-    if (_currentSoundHandle != null) {
+    if (_currentSoundHandle != null &&
+        SoLoud.instance.getIsValidVoiceHandle(_currentSoundHandle!)) {
       SoLoud.instance.setVolume(_currentSoundHandle!, volume);
     }
   }
 
   void _setPlayingState(bool isPlaying) {
-    // We provide current position along with the playing state when it changes
     Duration currentPosition = Duration.zero;
-    if (_currentSoundHandle != null && SoLoud.instance.getIsValidVoiceHandle(_currentSoundHandle!)) {
+    if (_currentSoundHandle != null &&
+        SoLoud.instance.getIsValidVoiceHandle(_currentSoundHandle!)) {
       currentPosition = SoLoud.instance.getPosition(_currentSoundHandle!);
     }
 
-    playbackState.add(playbackState.value.copyWith(
-      playing: isPlaying,
-      updatePosition: currentPosition,
-      controls: [
-        MediaControl.skipToPrevious,
-        if (isPlaying) MediaControl.pause else MediaControl.play,
-        MediaControl.skipToNext,
-      ],
-      systemActions: const {
-        MediaAction.seek,
-        MediaAction.seekForward,
-        MediaAction.seekBackward,
-      },
-    ));
+    playbackState.add(
+      playbackState.value.copyWith(
+        playing: isPlaying,
+        updatePosition: currentPosition,
+        controls: [
+          MediaControl.skipToPrevious,
+          if (isPlaying) MediaControl.pause else MediaControl.play,
+          MediaControl.skipToNext,
+        ],
+        systemActions: const {
+          MediaAction.seek,
+          MediaAction.seekForward,
+          MediaAction.seekBackward,
+        },
+      ),
+    );
   }
 }

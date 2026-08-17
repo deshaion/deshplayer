@@ -135,6 +135,8 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     _audioService.audioHandler.playbackState.listen((state) {
+      _log.info('Handle playback state: $state');
+        
       _isPlaying = state.playing;
       notifyListeners();
 
@@ -414,6 +416,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> playNext() async {
+    _log.info('playNext() is called');
     if (_currentTrack != null) {
       // Repeat One (2) - just replay the current track
       if (_settings.repeatMode == 2) {
