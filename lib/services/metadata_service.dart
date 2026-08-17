@@ -40,8 +40,9 @@ class MetadataService {
     CloudProvider provider,
     String cloudFilePath,
     Track track,
-    Directory localCacheDir,
-  ) async {
+    Directory localCacheDir, {
+    bool force = false,
+  }) async {
     try {
       final schemeIdx = cloudFilePath.indexOf('://');
       if (schemeIdx == -1) return;
@@ -79,6 +80,10 @@ class MetadataService {
               '$providerPrefix${dirPath.endsWith('/') ? dirPath : '$dirPath/'}$currentFileName';
           final matchingTracks = tracksByCloudPath[expectedCloudPath] ?? [];
           for (final t in matchingTracks) {
+            // A manual refresh makes the local audio file authoritative for
+            // the selected track. Do not restore its stale cloud values before
+            // TagLib gets a chance to inspect it.
+            if (force && t.id == track.id) continue;
             if (t.artist == null || t.duration.inSeconds == 0) {
               t.artist = entryData['artist'];
               t.title = entryData['title'];
@@ -101,7 +106,7 @@ class MetadataService {
           track.title != null &&
           track.title != 'Unknown Track' &&
           track.duration.inSeconds > 0;
-      if (metadata.containsKey(fileName) && isCurrentTrackPopulated) {
+      if (!force && metadata.containsKey(fileName) && isCurrentTrackPopulated) {
         _log.info(
           'Current track is already populated and exists in cloud metadata. No reason to upload.',
         );
@@ -114,7 +119,12 @@ class MetadataService {
         return;
       }
 
-      final tagFile = await TagLibFile.openAsync(track.localCachePath!);
+      final tagFile = await TagLibFile.openAsync(
+        track.localCachePath!,
+        audioPropertiesStyle: force
+            ? TagLibAudioPropertiesStyle.accurate
+            : TagLibAudioPropertiesStyle.average,
+      );
       if (tagFile == null) {
         _log.info('No audio tags found in file: ${track.localCachePath}');
         return;

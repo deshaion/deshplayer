@@ -118,7 +118,7 @@ class AudioPlayerService {
     }
   }
 
-  Future<void> syncMetadataAsync(Track track) async {
+  Future<void> syncMetadataAsync(Track track, {bool force = false}) async {
     try {
       final schemeIdx = track.cloudPath.indexOf('://');
       if (schemeIdx == -1) return;
@@ -131,6 +131,7 @@ class AudioPlayerService {
           track.cloudPath,
           track,
           cacheDir,
+          force: force,
         );
         await storageService.saveTrack(track);
       }

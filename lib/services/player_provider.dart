@@ -119,15 +119,24 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
           if (_currentTrack != null) {
             try {
               if (_currentTrack!.localCachePath != null) {
-                await _audioService.playTrack(_currentTrack!, startPaused: true);
+                await _audioService.playTrack(
+                  _currentTrack!,
+                  startPaused: true,
+                );
                 await _audioService.seek(_position);
-
               } else {
-                _log.severe('Something wrong with localCachePath of current track ${_currentTrack!.localCachePath}');
-                await _audioService.playTrack(_currentTrack!, startPaused: true);
+                _log.severe(
+                  'Something wrong with localCachePath of current track ${_currentTrack!.localCachePath}',
+                );
+                await _audioService.playTrack(
+                  _currentTrack!,
+                  startPaused: true,
+                );
               }
             } catch (e) {
-              _log.severe('Playback error caught in provider in starting current track: $e');
+              _log.severe(
+                'Playback error caught in provider in starting current track: $e',
+              );
             }
           }
         }
@@ -138,7 +147,8 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       _isPlaying = state.playing;
       notifyListeners();
 
-      if (state.playing && state.processingState == AudioProcessingState.ready) {
+      if (state.playing &&
+          state.processingState == AudioProcessingState.ready) {
         _consecutiveFailures = 0; // Reset failures on successful playback
       }
 
@@ -305,7 +315,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     } else if (playlist.trackIds.isNotEmpty) {
       final track = _storageService.getTrack(playlist.trackIds.first);
       if (track != null) {
-         await setActivePlaylist(playlist, startTrack: track);
+        await setActivePlaylist(playlist, startTrack: track);
       }
     }
   }
@@ -315,7 +325,11 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  Future<void> setActivePlaylist(Playlist playlist, {Track? startTrack, bool startPaused = false}) async {
+  Future<void> setActivePlaylist(
+    Playlist playlist, {
+    Track? startTrack,
+    bool startPaused = false,
+  }) async {
     _settings.lastActivePlaylistId = playlist.id;
     _storageService.saveSettings(_settings);
 
@@ -333,7 +347,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
         _queue.clear();
       }
     } else {
-       _queue.clear();
+      _queue.clear();
     }
 
     _playingPlaylist = playlist;
@@ -352,10 +366,16 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (startTrack != null && _currentTrack != null) {
       try {
         if (startPaused) {
-           await _audioService.playTrack(_currentTrack!, protectedTracks: _protectedTracks);
-           await pause();
+          await _audioService.playTrack(
+            _currentTrack!,
+            protectedTracks: _protectedTracks,
+          );
+          await pause();
         } else {
-           await _audioService.playTrack(_currentTrack!, protectedTracks: _protectedTracks);
+          await _audioService.playTrack(
+            _currentTrack!,
+            protectedTracks: _protectedTracks,
+          );
         }
       } catch (e) {
         _handlePlaybackError(e);
@@ -418,7 +438,10 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       // Repeat One (2) - just replay the current track
       if (_settings.repeatMode == 2) {
         await _audioService.seek(Duration.zero);
-        await _audioService.playTrack(_currentTrack!, protectedTracks: _protectedTracks);
+        await _audioService.playTrack(
+          _currentTrack!,
+          protectedTracks: _protectedTracks,
+        );
         return;
       }
       _history.add(_currentTrack!);
@@ -433,7 +456,10 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       _fillQueue();
       notifyListeners();
       try {
-        await _audioService.playTrack(nextTrack, protectedTracks: _protectedTracks);
+        await _audioService.playTrack(
+          nextTrack,
+          protectedTracks: _protectedTracks,
+        );
       } catch (e) {
         _handlePlaybackError(e);
       }
@@ -454,7 +480,10 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       _currentTrack = prevTrack;
       notifyListeners();
       try {
-        await _audioService.playTrack(prevTrack, protectedTracks: _protectedTracks);
+        await _audioService.playTrack(
+          prevTrack,
+          protectedTracks: _protectedTracks,
+        );
       } catch (e) {
         _handlePlaybackError(e);
       }
@@ -474,7 +503,10 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
           _fillQueue();
           notifyListeners();
           try {
-            await _audioService.playTrack(prevTrack, protectedTracks: _protectedTracks);
+            await _audioService.playTrack(
+              prevTrack,
+              protectedTracks: _protectedTracks,
+            );
           } catch (e) {
             _handlePlaybackError(e);
           }
@@ -563,7 +595,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> syncTrackMetadata(Track track) async {
-    await _audioService.syncMetadataAsync(track);
+    await _audioService.syncMetadataAsync(track, force: true);
     notifyListeners();
   }
 }
