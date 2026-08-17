@@ -9,14 +9,15 @@ import 'package:logging/logging.dart';
 import '../models/track.dart';
 
 class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
-  static const _decodedBytesPerSecond = 48000 * 2 * 4;
-  static const _minimumPreservedBufferBytes = 100 * 1024 * 1024;
-  static const _unknownDurationExpansionFactor = 64;
+  static const _streamBufferSizeBytes = 100 * 1024 * 1024;
+  static const _streamBufferHighWaterBytes = _streamBufferSizeBytes ~/ 2;
+  static const _streamBufferPollDelay = Duration(milliseconds: 100);
 
   final _log = Logger('DeshAudioHandler');
 
   SoundHandle? _currentSoundHandle;
   AudioSource? _currentAudioSource;
+  bool _usesReleasedStreamBuffer = false;
 
   StreamSubscription<List<int>>? _httpSubscription;
   IOSink? _activeSink;
@@ -101,6 +102,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
             _currentAudioSource = await SoLoud.instance.loadFile(
               finalFile.path,
             );
+            _usesReleasedStreamBuffer = false;
             _log.info('Playing from local cache: ${finalFile.path}');
             if (_currentAudioSource != null && !_isDisposed) {
               _currentSoundHandle = SoLoud.instance.play(
@@ -128,7 +130,6 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
           downloadUrl,
           finalFile,
           startPaused,
-          track.duration,
         );
       }
 
@@ -173,7 +174,6 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     String downloadUrl,
     File finalFile,
     bool startPaused,
-    Duration trackDuration,
   ) async {
     final tempFile = File('${finalFile.path}.tmp');
     if (await tempFile.exists()) {
@@ -202,18 +202,12 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     }
 
     late final AudioSource source;
-    final maxBufferSizeBytes = _preservedBufferSizeBytes(
-      trackDuration,
-      response.contentLength,
-    );
-    _log.fine(
-      'Allocating a preserved stream capacity of $maxBufferSizeBytes bytes',
-    );
+    _log.fine('Allocating a released streaming buffer');
     source = SoLoud.instance.setBufferStream(
       format: BufferType.auto,
-      bufferingType: BufferingType.preserved,
+      bufferingType: BufferingType.released,
       bufferingTimeNeeds: 2,
-      maxBufferSizeBytes: maxBufferSizeBytes,
+      maxBufferSizeBytes: _streamBufferSizeBytes,
       onBuffering: (isBuffering, handle, time) {
         if (_isDisposed || _currentAudioSource != source) return;
         playbackState.add(
@@ -232,17 +226,32 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     }
 
     _currentAudioSource = source;
+    _usesReleasedStreamBuffer = true;
     _currentSoundHandle = SoLoud.instance.play(source, paused: startPaused);
     _setPlayingState(!startPaused);
 
     var audioDataRejected = false;
-    _httpSubscription = response.stream.listen(
-      (chunk) {
+    late final StreamSubscription<List<int>> subscription;
+    subscription = response.stream.listen(
+      (chunk) async {
         if (_isDisposed || _currentAudioSource != source) return;
         sink.add(chunk);
         if (audioDataRejected) return;
+
+        // Keep chunks in order while SoLoud applies backpressure. In
+        // particular, do not allow onDone to mark the stream as ended while
+        // this chunk is still waiting to be accepted.
+        subscription.pause();
         try {
-          SoLoud.instance.addAudioDataStream(source, Uint8List.fromList(chunk));
+          final audioData = Uint8List.fromList(chunk);
+          while (!_isDisposed && _currentAudioSource == source) {
+            if (SoLoud.instance.getBufferSize(source) <
+                _streamBufferHighWaterBytes) {
+              SoLoud.instance.addAudioDataStream(source, audioData);
+              break;
+            }
+            await Future<void>.delayed(_streamBufferPollDelay);
+          }
         } catch (e) {
           audioDataRejected = true;
           _log.severe('Could not add audio data to the SoLoud stream: $e');
@@ -252,6 +261,8 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
               errorMessage: e.toString(),
             ),
           );
+        } finally {
+          subscription.resume();
         }
       },
       onDone: () async {
@@ -297,28 +308,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       },
       cancelOnError: true,
     );
-  }
-
-  int _preservedBufferSizeBytes(Duration duration, int? compressedSizeBytes) {
-    if (duration > Duration.zero) {
-      // SoLoud stores decoded samples as 32-bit floats. Use a 48 kHz stereo
-      // upper bound and leave room for imprecise/rounded track metadata.
-      final durationWithMargin = duration + const Duration(seconds: 30);
-      final decodedSize =
-          durationWithMargin.inMilliseconds * _decodedBytesPerSecond ~/ 1000;
-      return decodedSize < _minimumPreservedBufferBytes
-          ? _minimumPreservedBufferBytes
-          : decodedSize;
-    }
-
-    // A compressed stream generally does not expose a reliable duration early
-    // enough to resize the SoLoud stream. The limit does not allocate memory;
-    // it only caps how much decoded PCM the preserved stream may retain.
-    final estimatedSize =
-        (compressedSizeBytes ?? 0) * _unknownDurationExpansionFactor;
-    return estimatedSize < _minimumPreservedBufferBytes
-        ? _minimumPreservedBufferBytes
-        : estimatedSize;
+    _httpSubscription = subscription;
   }
 
   Future<void> _stopCurrentPlayback() async {
@@ -343,6 +333,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         await SoLoud.instance.disposeSource(_currentAudioSource!);
       } catch (_) {}
       _currentAudioSource = null;
+      _usesReleasedStreamBuffer = false;
     }
   }
 
@@ -378,6 +369,10 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   Future<void> seek(Duration position) async {
     if (_currentSoundHandle != null &&
         SoLoud.instance.getIsValidVoiceHandle(_currentSoundHandle!)) {
+      if (_usesReleasedStreamBuffer) {
+        _log.fine('Seeking is unavailable until the track is fully cached');
+        return;
+      }
       SoLoud.instance.seek(_currentSoundHandle!, position);
       playbackState.add(playbackState.value.copyWith(updatePosition: position));
     }
@@ -394,7 +389,9 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     Duration currentPosition = Duration.zero;
     if (_currentSoundHandle != null &&
         SoLoud.instance.getIsValidVoiceHandle(_currentSoundHandle!)) {
-      currentPosition = SoLoud.instance.getPosition(_currentSoundHandle!);
+      currentPosition = _usesReleasedStreamBuffer && _currentAudioSource != null
+          ? SoLoud.instance.getStreamTimeConsumed(_currentAudioSource!)
+          : SoLoud.instance.getPosition(_currentSoundHandle!);
     }
 
     playbackState.add(

@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:audiotags/audiotags.dart';
+import 'package:flutter_taglib/flutter_taglib.dart';
 import 'package:logging/logging.dart';
 import '../models/track.dart';
 import 'cloud_provider.dart';
@@ -11,9 +11,14 @@ class MetadataService {
   static const String metadataFileName = 'metadata.json';
 
   // Read metadata.json from cloud path
-  Future<Map<String, dynamic>?> getCloudMetadata(CloudProvider provider, String dirPath, Directory localCacheDir) async {
+  Future<Map<String, dynamic>?> getCloudMetadata(
+    CloudProvider provider,
+    String dirPath,
+    Directory localCacheDir,
+  ) async {
     try {
-      final cloudMetadataPath = '${dirPath.endsWith('/') ? dirPath : '$dirPath/'}$metadataFileName';
+      final cloudMetadataPath =
+          '${dirPath.endsWith('/') ? dirPath : '$dirPath/'}$metadataFileName';
       final downloadUrl = await provider.getDownloadUrl(cloudMetadataPath);
 
       if (downloadUrl != null) {
@@ -31,17 +36,27 @@ class MetadataService {
     return null;
   }
 
-  Future<void> updateMetadataInCloud(CloudProvider provider, String cloudFilePath, Track track, Directory localCacheDir) async {
+  Future<void> updateMetadataInCloud(
+    CloudProvider provider,
+    String cloudFilePath,
+    Track track,
+    Directory localCacheDir,
+  ) async {
     try {
       final schemeIdx = cloudFilePath.indexOf('://');
       if (schemeIdx == -1) return;
       final actualPath = cloudFilePath.substring(schemeIdx + 3);
       final dirPath = actualPath.substring(0, actualPath.lastIndexOf('/'));
 
-      final cloudMetadataPath = '${dirPath.endsWith('/') ? dirPath : '$dirPath/'}$metadataFileName';
+      final cloudMetadataPath =
+          '${dirPath.endsWith('/') ? dirPath : '$dirPath/'}$metadataFileName';
 
       Map<String, dynamic> metadata = {};
-      final existingMetadata = await getCloudMetadata(provider, dirPath, localCacheDir);
+      final existingMetadata = await getCloudMetadata(
+        provider,
+        dirPath,
+        localCacheDir,
+      );
       final fileName = actualPath.split('/').last;
       final providerPrefix = cloudFilePath.substring(0, schemeIdx + 3);
 
@@ -60,7 +75,8 @@ class MetadataService {
           final currentFileName = entry.key;
           final entryData = entry.value;
 
-          final expectedCloudPath = '$providerPrefix${dirPath.endsWith('/') ? dirPath : '$dirPath/'}$currentFileName';
+          final expectedCloudPath =
+              '$providerPrefix${dirPath.endsWith('/') ? dirPath : '$dirPath/'}$currentFileName';
           final matchingTracks = tracksByCloudPath[expectedCloudPath] ?? [];
           for (final t in matchingTracks) {
             if (t.artist == null || t.duration.inSeconds == 0) {
@@ -70,35 +86,52 @@ class MetadataService {
               await hive.saveTrack(t);
 
               if (t.id == track.id) {
-                 track.artist = t.artist;
-                 track.title = t.title;
-                 track.duration = t.duration;
+                track.artist = t.artist;
+                track.title = t.title;
+                track.duration = t.duration;
               }
             }
           }
         }
       }
 
-      final isCurrentTrackPopulated = track.artist != null && track.artist != 'Unknown Artist' && track.title != null && track.title != 'Unknown Track' && track.duration.inSeconds > 0;
+      final isCurrentTrackPopulated =
+          track.artist != null &&
+          track.artist != 'Unknown Artist' &&
+          track.title != null &&
+          track.title != 'Unknown Track' &&
+          track.duration.inSeconds > 0;
       if (metadata.containsKey(fileName) && isCurrentTrackPopulated) {
-        _log.info('Current track is already populated and exists in cloud metadata. No reason to upload.');
+        _log.info(
+          'Current track is already populated and exists in cloud metadata. No reason to upload.',
+        );
         return;
       }
 
-      if (track.localCachePath == null || !File(track.localCachePath!).existsSync()) {
+      if (track.localCachePath == null ||
+          !File(track.localCachePath!).existsSync()) {
         _log.warning('Cannot read tags, file missing: ${track.localCachePath}');
         return;
       }
 
-      final tags = await AudioTags.read(track.localCachePath!);
-      if (tags == null) {
+      final tagFile = await TagLibFile.openAsync(track.localCachePath!);
+      if (tagFile == null) {
         _log.info('No audio tags found in file: ${track.localCachePath}');
         return;
       }
 
-      final title = tags.title ?? track.title;
-      final artist = tags.trackArtist ?? track.artist;
-      final duration = tags.duration != null ? Duration(seconds: tags.duration!) : track.duration;
+      late final String? title;
+      late final String? artist;
+      late final Duration duration;
+      try {
+        title = tagFile.title.trim().isEmpty ? track.title : tagFile.title;
+        artist = tagFile.artist.trim().isEmpty ? track.artist : tagFile.artist;
+        duration = tagFile.duration > Duration.zero
+            ? tagFile.duration
+            : track.duration;
+      } finally {
+        tagFile.close();
+      }
 
       track.title = title;
       track.artist = artist;
@@ -113,7 +146,9 @@ class MetadataService {
         'durationMs': duration.inMilliseconds,
       };
 
-      final localMetadataFile = File('${localCacheDir.path}/${DateTime.now().millisecondsSinceEpoch}_metadata.json');
+      final localMetadataFile = File(
+        '${localCacheDir.path}/${DateTime.now().millisecondsSinceEpoch}_metadata.json',
+      );
       await localMetadataFile.writeAsString(json.encode(metadata));
 
       await provider.uploadFile(cloudMetadataPath, localMetadataFile);
