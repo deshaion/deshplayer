@@ -27,10 +27,13 @@ class AudioPlayerService {
         androidNotificationOngoing: true,
       ),
     );
-    audioHandler = handler ;
+    audioHandler = handler;
   }
 
-  Future<void> preCacheTrack(Track track, {List<Track>? protectedTracks}) async {
+  Future<void> preCacheTrack(
+    Track track, {
+    List<Track>? protectedTracks,
+  }) async {
     if (track.localCachePath != null &&
         File(track.localCachePath!).existsSync()) {
       return;
@@ -38,7 +41,10 @@ class AudioPlayerService {
 
     _log.info('Pre-caching track: ${track.id}');
     try {
-      final localPath = await cloudMediaService.downloadAndCacheTrack(track, protectedTracks: protectedTracks);
+      final localPath = await cloudMediaService.downloadAndCacheTrack(
+        track,
+        protectedTracks: protectedTracks,
+      );
       track.localCachePath = localPath;
       await storageService.saveTrack(track);
 
@@ -50,39 +56,63 @@ class AudioPlayerService {
     }
   }
 
-  Future<void> playTrack(Track track, {List<Track>? protectedTracks, bool startPaused = false}) async {
+  Future<void> playTrack(
+    Track track, {
+    List<Track>? protectedTracks,
+    bool startPaused = false,
+  }) async {
     _log.info('Attempting to play track: ${track.id} (${track.title})');
 
+    final previousLocalCachePath = track.localCachePath;
     try {
       String localPath;
       String? downloadUrl;
+      final wasCached =
+          track.localCachePath != null &&
+          File(track.localCachePath!).existsSync();
 
-      if (track.localCachePath != null &&
-          File(track.localCachePath!).existsSync()) {
+      if (wasCached) {
         _log.fine('Playing from local cache: ${track.localCachePath}');
         localPath = track.localCachePath!;
         downloadUrl = "local"; // not needed for local playback
       } else {
-        _log.fine('Track not in local cache, requesting download URL from cloud: ${track.cloudPath}');
+        _log.fine(
+          'Track not in local cache, requesting download URL from cloud: ${track.cloudPath}',
+        );
         downloadUrl = await cloudMediaService.getDownloadUrlForTrack(track);
         final cacheDir = await cloudMediaService.getCacheDir();
         localPath = '${cacheDir.path}/${track.id}';
       }
 
-      await audioHandler.playTrack(track, downloadUrl: downloadUrl, localPath: localPath, startPaused: startPaused);
+      final needsMetadataSync =
+          track.artist == null ||
+          track.artist == 'Unknown Artist' ||
+          track.title == null ||
+          track.title == 'Unknown Track' ||
+          track.duration.inSeconds == 0;
+      track.localCachePath = localPath;
+
+      await audioHandler.playTrack(
+        track,
+        downloadUrl: downloadUrl,
+        localPath: localPath,
+        startPaused: startPaused,
+        onMetadataChanged: () {
+          unawaited(storageService.saveTrack(track));
+        },
+        onCacheCompleted: !wasCached && needsMetadataSync
+            ? () => syncMetadataAsync(track)
+            : null,
+      );
 
       // Update metadata and tracking
-      track.localCachePath = localPath;
       track.lastAccessed = DateTime.now();
       await storageService.saveTrack(track);
-
-      if (track.artist == null || track.duration.inSeconds == 0) {
-        syncMetadataAsync(track);
-      }
 
       _log.info('Started playback for track: ${track.id}');
       storageService.addToHistory(track.id);
     } catch (e, stackTrace) {
+      track.localCachePath = previousLocalCachePath;
       _log.severe('Error playing track: ${track.id}', e, stackTrace);
       rethrow;
     }

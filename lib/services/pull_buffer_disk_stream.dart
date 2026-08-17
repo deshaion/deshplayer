@@ -11,6 +11,14 @@ import 'package:flutter_taglib/flutter_taglib.dart';
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 
+class AudioTagProbe {
+  const AudioTagProbe({this.title, this.artist, this.duration});
+
+  final String? title;
+  final String? artist;
+  final Duration? duration;
+}
+
 class PullBufferDiskStream {
   static const _decodedBufferSizeBytes = 16 * 1024 * 1024;
   static const _encodedChunkSizeBytes = 64 * 1024;
@@ -41,6 +49,8 @@ class PullBufferDiskStream {
   Object? _downloadError;
 
   void Function(Duration duration)? _onDuration;
+  void Function(AudioTagProbe tags)? _onTags;
+  void Function()? _onCacheCompleted;
   void Function(bool isBuffering, int handle, double time)? _onBuffering;
   void Function(Object error, StackTrace stackTrace)? _onError;
 
@@ -48,6 +58,8 @@ class PullBufferDiskStream {
     required String url,
     required File finalFile,
     void Function(Duration duration)? onDuration,
+    void Function(AudioTagProbe tags)? onTags,
+    void Function()? onCacheCompleted,
     void Function(bool isBuffering, int handle, double time)? onBuffering,
     void Function(Object error, StackTrace stackTrace)? onError,
   }) async {
@@ -56,6 +68,8 @@ class PullBufferDiskStream {
     _tempFile = File('${finalFile.path}.tmp');
     _readFile = _tempFile;
     _onDuration = onDuration;
+    _onTags = onTags;
+    _onCacheCompleted = onCacheCompleted;
     _onBuffering = onBuffering;
     _onError = onError;
 
@@ -120,7 +134,7 @@ class PullBufferDiskStream {
         if (!_durationProbed && _downloadedBytes >= _durationProbeBytes) {
           _durationProbed = true;
           await writer.flush();
-          await _probeDurationFromPartialFile();
+          await _probeTags(_tempFile, estimatePartialDuration: true);
         }
       }
 
@@ -131,10 +145,8 @@ class PullBufferDiskStream {
       _downloadFinished = true;
       _signalDataChanged();
 
-      if (!_durationProbed) {
-        _durationProbed = true;
-        await _probeDurationFromPartialFile();
-      }
+      _durationProbed = true;
+      await _probeTags(_tempFile, estimatePartialDuration: false);
 
       _renamingCache = true;
       await _waitForReaders();
@@ -144,6 +156,7 @@ class PullBufferDiskStream {
       _renamingCache = false;
       _signalDataChanged();
       _log.info('Track cached at ${_finalFile.path}');
+      _onCacheCompleted?.call();
     } catch (error, stackTrace) {
       if (_disposed) return;
       _downloadError = error;
@@ -249,33 +262,48 @@ class PullBufferDiskStream {
     _dataChanged = Completer<void>();
   }
 
-  Future<void> _probeDurationFromPartialFile() async {
+  Future<void> _probeTags(
+    File file, {
+    required bool estimatePartialDuration,
+  }) async {
     TagLibFile? tagFile;
     try {
       tagFile = await TagLibFile.openAsync(
-        _tempFile.path,
+        file.path,
         audioPropertiesStyle: TagLibAudioPropertiesStyle.fast,
       );
       if (tagFile == null) return;
 
-      final parsedDuration = tagFile.duration;
+      final title = tagFile.title.trim();
+      final artist = tagFile.artist.trim();
+      var duration = tagFile.duration;
       final bitrateKbps = tagFile.bitrate;
-      if (bitrateKbps > 0 && _totalBytes > _downloadedBytes) {
+      if (estimatePartialDuration &&
+          bitrateKbps > 0 &&
+          _totalBytes > _downloadedBytes) {
         final partialEstimateMs = (_downloadedBytes * 8) ~/ bitrateKbps;
         final looksPartial =
-            parsedDuration <= Duration.zero ||
-            (parsedDuration.inMilliseconds - partialEstimateMs).abs() <
+            duration <= Duration.zero ||
+            (duration.inMilliseconds - partialEstimateMs).abs() <
                 partialEstimateMs ~/ 4;
         if (looksPartial) {
-          _reportDuration(
-            Duration(milliseconds: (_totalBytes * 8) ~/ bitrateKbps),
-          );
-          return;
+          duration = Duration(milliseconds: (_totalBytes * 8) ~/ bitrateKbps);
         }
       }
-      if (parsedDuration > Duration.zero) _reportDuration(parsedDuration);
+
+      final result = AudioTagProbe(
+        title: title.isEmpty ? null : title,
+        artist: artist.isEmpty ? null : artist,
+        duration: duration > Duration.zero ? duration : null,
+      );
+      if (result.title != null ||
+          result.artist != null ||
+          result.duration != null) {
+        _onTags?.call(result);
+      }
+      if (result.duration != null) _reportDuration(result.duration!);
     } catch (error) {
-      _log.fine('Partial-file duration probe is not ready: $error');
+      _log.fine('Audio tag probe is not ready: $error');
     } finally {
       tagFile?.close();
     }

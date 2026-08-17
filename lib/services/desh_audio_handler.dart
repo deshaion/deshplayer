@@ -56,6 +56,8 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     required String downloadUrl,
     required String localPath,
     bool startPaused = false,
+    void Function()? onMetadataChanged,
+    void Function()? onCacheCompleted,
   }) async {
     await _stopCurrentPlayback();
 
@@ -118,7 +120,14 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       // 2. Stream and cache if not loaded from cache
       if (!loadedFromCache && !_isDisposed) {
         _log.info('Streaming and caching to: ${finalFile.path}');
-        await _playPullBufferStream(downloadUrl, finalFile, startPaused, track);
+        await _playPullBufferStream(
+          downloadUrl,
+          finalFile,
+          startPaused,
+          track,
+          onMetadataChanged,
+          onCacheCompleted,
+        );
       }
 
       if (!_isDisposed) {
@@ -163,6 +172,8 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     File finalFile,
     bool startPaused,
     Track track,
+    void Function()? onMetadataChanged,
+    void Function()? onCacheCompleted,
   ) async {
     final streamer = PullBufferDiskStream();
     _pullBufferStream = streamer;
@@ -177,6 +188,28 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
           track.duration = duration;
           final item = mediaItem.value;
           if (item != null) mediaItem.add(item.copyWith(duration: duration));
+        },
+        onTags: (tags) {
+          if (_isDisposed || _pullBufferStream != streamer) return;
+          if (tags.title != null) track.title = tags.title;
+          if (tags.artist != null) track.artist = tags.artist;
+          if (tags.duration != null) track.duration = tags.duration!;
+
+          final item = mediaItem.value;
+          if (item != null) {
+            mediaItem.add(
+              item.copyWith(
+                title: tags.title ?? item.title,
+                artist: tags.artist ?? item.artist,
+                duration: tags.duration ?? item.duration,
+              ),
+            );
+          }
+          onMetadataChanged?.call();
+        },
+        onCacheCompleted: () {
+          if (_isDisposed || _pullBufferStream != streamer) return;
+          onCacheCompleted?.call();
         },
         onBuffering: (isBuffering, handle, time) {
           if (_isDisposed || _pullBufferStream != streamer) return;
