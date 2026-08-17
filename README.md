@@ -53,11 +53,24 @@ sudo apt install lld-18 llvm-18
 sudo apt install libsecret-1-dev
 ```
 
-After installing the dependencies, you can build the Linux application:
+On Linux, run the application with `NO_XIPH_LIBS=1` so that
+`flutter_soloud` does not link the system Xiph codec libraries:
 
 ```bash
-flutter build linux
+NO_XIPH_LIBS=1 flutter run -d linux
 ```
+
+Use the same environment variable when creating a Linux release build:
+
+```bash
+NO_XIPH_LIBS=1 flutter build linux
+```
+
+This setting disables SoLoud's Xiph-backed Ogg, Opus, Vorbis, and FLAC
+support. MP3 and the other non-Xiph formats supported by SoLoud remain
+available. If you change this setting after an earlier Linux build, run
+`flutter clean` once before running or rebuilding so CMake regenerates the
+native configuration.
 
 ### macOS
 
