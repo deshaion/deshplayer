@@ -289,6 +289,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
 
     playbackState.add(
       playbackState.value.copyWith(
+        processingState: AudioProcessingState.ready,
         playing: isPlaying,
         updatePosition: currentPosition,
         controls: [
