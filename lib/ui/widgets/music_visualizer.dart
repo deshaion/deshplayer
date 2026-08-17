@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
+import 'package:flutter_soloud/flutter_soloud.dart';
 
 class MusicVisualizer extends StatefulWidget {
   final bool isPlaying;
@@ -21,35 +22,41 @@ class MusicVisualizer extends StatefulWidget {
   State<MusicVisualizer> createState() => _MusicVisualizerState();
 }
 
-class _MusicVisualizerState extends State<MusicVisualizer> with SingleTickerProviderStateMixin {
+class _MusicVisualizerState extends State<MusicVisualizer>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   final Random _random = Random();
   late List<double> _barHeights;
   late List<double> _targetBarHeights;
+
+  late AudioData _audioData;
 
   @override
   void initState() {
     super.initState();
     _barHeights = List.generate(widget.barCount, (index) => 0.1);
     _targetBarHeights = List.generate(widget.barCount, (index) => 0.1);
+    _audioData = AudioData(GetSamplesKind.linear);
 
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 150), // How fast bars update
-    )..addListener(() {
-        setState(() {
-          for (int i = 0; i < widget.barCount; i++) {
-            // Lerp towards target for smooth animation
-            _barHeights[i] += (_targetBarHeights[i] - _barHeights[i]) * 0.3;
-          }
-        });
-      })
-      ..addStatusListener((status) {
-        if (status == AnimationStatus.completed && widget.isPlaying) {
-          _generateNewTargets();
-          _controller.forward(from: 0.0);
-        }
-      });
+    _controller =
+        AnimationController(
+            vsync: this,
+            duration: const Duration(milliseconds: 50), // How fast bars update
+          )
+          ..addListener(() {
+            setState(() {
+              for (int i = 0; i < widget.barCount; i++) {
+                // Lerp towards target for smooth animation
+                _barHeights[i] += (_targetBarHeights[i] - _barHeights[i]) * 0.3;
+              }
+            });
+          })
+          ..addStatusListener((status) {
+            if (status == AnimationStatus.completed && widget.isPlaying) {
+              _generateNewTargets();
+              _controller.forward(from: 0.0);
+            }
+          });
 
     if (widget.isPlaying) {
       _generateNewTargets();
@@ -58,6 +65,45 @@ class _MusicVisualizerState extends State<MusicVisualizer> with SingleTickerProv
   }
 
   void _generateNewTargets() {
+    if (SoLoud.instance.isInitialized) {
+      try {
+        _audioData.updateSamples();
+        final rawData = _audioData.getAudioData();
+        // Linear data contains 256 FFT values followed by 256 waveform
+        // samples. Build the bars exclusively from the FFT half; sampling the
+        // entire list mixes two unrelated value domains.
+        if (rawData.length >= 256) {
+          final bandPeaks = List<double>.filled(widget.barCount, 0);
+          const firstBin = 1; // Ignore the DC component.
+          const fftBinCount = 255;
+
+          for (int i = 0; i < widget.barCount; i++) {
+            final start = firstBin + (i * fftBinCount ~/ widget.barCount);
+            final end = firstBin + ((i + 1) * fftBinCount ~/ widget.barCount);
+            for (int bin = start; bin < end; bin++) {
+              bandPeaks[i] = max(bandPeaks[i], rawData[bin].abs());
+            }
+          }
+
+          final strongest = bandPeaks.reduce(max);
+          if (strongest > 0.000001) {
+            // SoLoud returns floating-point magnitudes, not byte values. Use
+            // relative band energy for the shape and retain some absolute
+            // loudness so quiet passages remain visibly quieter.
+            final loudness = (sqrt(strongest) * 3).clamp(0.25, 1.0);
+            for (int i = 0; i < widget.barCount; i++) {
+              final relativeEnergy = sqrt(bandPeaks[i] / strongest);
+              _targetBarHeights[i] = (0.1 + 0.9 * relativeEnergy * loudness)
+                  .clamp(0.1, 1.0);
+            }
+            return;
+          }
+        }
+      } catch (e) {
+        // Fallback to random if error
+      }
+    }
+
     for (int i = 0; i < widget.barCount; i++) {
       // Random height between 0.1 and 1.0
       _targetBarHeights[i] = _random.nextDouble() * 0.9 + 0.1;
@@ -85,7 +131,7 @@ class _MusicVisualizerState extends State<MusicVisualizer> with SingleTickerProv
         // Smoothly animate back to minimum height when paused
         _controller.stop();
         for (int i = 0; i < widget.barCount; i++) {
-           _targetBarHeights[i] = 0.1;
+          _targetBarHeights[i] = 0.1;
         }
         _controller.forward(from: 0.0);
       }
@@ -94,6 +140,7 @@ class _MusicVisualizerState extends State<MusicVisualizer> with SingleTickerProv
 
   @override
   void dispose() {
+    _audioData.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -104,7 +151,8 @@ class _MusicVisualizerState extends State<MusicVisualizer> with SingleTickerProv
     final spacing = 2.0;
     final horizontalPadding = 16.0; // 8.0 on left, 8.0 on right
     final availableWidth = widget.width - horizontalPadding;
-    final barWidth = (availableWidth - (spacing * (widget.barCount - 1))) / widget.barCount;
+    final barWidth =
+        (availableWidth - (spacing * (widget.barCount - 1))) / widget.barCount;
 
     return Container(
       width: widget.width,
@@ -120,7 +168,8 @@ class _MusicVisualizerState extends State<MusicVisualizer> with SingleTickerProv
         children: List.generate(widget.barCount, (index) {
           return Container(
             width: barWidth,
-            height: _barHeights[index] * (widget.height - 16.0), // -16 for padding
+            height:
+                _barHeights[index] * (widget.height - 16.0), // -16 for padding
             decoration: BoxDecoration(
               color: color,
               borderRadius: BorderRadius.circular(2),
