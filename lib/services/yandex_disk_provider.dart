@@ -9,7 +9,8 @@ import 'package:logging/logging.dart';
 
 class YandexDiskProvider implements CloudProvider {
   final SecureStorageService _secureStorage;
-  static const String _baseUrl = 'https://cloud-api.yandex.net/v1/disk/resources';
+  static const String _baseUrl =
+      'https://cloud-api.yandex.net/v1/disk/resources';
   final _log = Logger('API');
 
   YandexDiskProvider(this._secureStorage);
@@ -27,7 +28,10 @@ class YandexDiskProvider implements CloudProvider {
   @override
   Future<bool> isConnected() async {
     final token = await _getToken();
-    _log.severe('Yandex API connection token is valid: ${token != null && token.isNotEmpty}');
+    _log.info(
+      'Yandex API connection token is stored: '
+      '${token != null && token.isNotEmpty}',
+    );
 
     if (token == null || token.isEmpty) return false;
     // Verify token
@@ -39,12 +43,16 @@ class YandexDiskProvider implements CloudProvider {
 
       // Log if the server responds with an error code (like 401 Unauthorized)
       if (response.statusCode != 200) {
-        _log.severe('Yandex API connection failed Status Code: ${response.statusCode}, Body: ${response.body}');
+        _log.severe(
+          'Yandex API connection failed Status Code: ${response.statusCode}, Body: ${response.body}',
+        );
       }
 
       return response.statusCode == 200;
     } catch (e, stackTrace) {
-      _log.severe('Exception in isConnected: ${e.toString()}, Stack: ${stackTrace.toString()}');
+      _log.severe(
+        'Exception in isConnected: ${e.toString()}, Stack: ${stackTrace.toString()}',
+      );
       return false;
     }
   }
@@ -61,15 +69,21 @@ class YandexDiskProvider implements CloudProvider {
   }
 
   @override
-  Future<List<CloudNode>> listPath(String path, {int limit = 100, int offset = 0}) async {
+  Future<List<CloudNode>> listPath(
+    String path, {
+    int limit = 100,
+    int offset = 0,
+  }) async {
     final token = await _getToken();
     if (token == null) throw Exception('Not connected');
 
-    final uri = Uri.parse(_baseUrl).replace(queryParameters: {
-      'path': path.isEmpty ? 'disk:/' : path,
-      'limit': limit.toString(),
-      'offset': offset.toString(),
-    });
+    final uri = Uri.parse(_baseUrl).replace(
+      queryParameters: {
+        'path': path.isEmpty ? 'disk:/' : path,
+        'limit': limit.toString(),
+        'offset': offset.toString(),
+      },
+    );
 
     final response = await http.get(
       uri,
@@ -95,7 +109,9 @@ class YandexDiskProvider implements CloudProvider {
         );
       }).toList();
     } else {
-      throw Exception('Failed to list path: ${response.statusCode} - ${response.body}');
+      throw Exception(
+        'Failed to list path: ${response.statusCode} - ${response.body}',
+      );
     }
   }
 
@@ -104,9 +120,9 @@ class YandexDiskProvider implements CloudProvider {
     final token = await _getToken();
     if (token == null) throw Exception('Not connected');
 
-    final uri = Uri.parse('$_baseUrl/download').replace(queryParameters: {
-      'path': path,
-    });
+    final uri = Uri.parse(
+      '$_baseUrl/download',
+    ).replace(queryParameters: {'path': path});
 
     final response = await http.get(
       uri,
@@ -119,7 +135,9 @@ class YandexDiskProvider implements CloudProvider {
     } else if (response.statusCode == 404) {
       throw CloudFileNotFoundException('File not found at $path (404)');
     } else {
-      throw Exception('Failed to get download URL: ${response.statusCode} - ${response.body}');
+      throw Exception(
+        'Failed to get download URL: ${response.statusCode} - ${response.body}',
+      );
     }
   }
 
@@ -129,10 +147,9 @@ class YandexDiskProvider implements CloudProvider {
     if (token == null) throw Exception('Not connected');
 
     // 1. Get upload URL
-    final getUploadUrlUri = Uri.parse('$_baseUrl/upload').replace(queryParameters: {
-      'path': path,
-      'overwrite': 'true',
-    });
+    final getUploadUrlUri = Uri.parse(
+      '$_baseUrl/upload',
+    ).replace(queryParameters: {'path': path, 'overwrite': 'true'});
 
     final uploadUrlResponse = await http.get(
       getUploadUrlUri,
@@ -140,7 +157,9 @@ class YandexDiskProvider implements CloudProvider {
     );
 
     if (uploadUrlResponse.statusCode != 200) {
-      throw Exception('Failed to get upload URL: ${uploadUrlResponse.statusCode} - ${uploadUrlResponse.body}');
+      throw Exception(
+        'Failed to get upload URL: ${uploadUrlResponse.statusCode} - ${uploadUrlResponse.body}',
+      );
     }
 
     final uploadUrlData = json.decode(uploadUrlResponse.body);

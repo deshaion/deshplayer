@@ -1,0 +1,1695 @@
+/// A high-performance, feature-rich Flutter plugin wrapping TagLib using Dart FFI and Native Assets.
+library;
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:ffi' as ffi;
+import 'dart:io';
+import 'dart:isolate';
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/services.dart' show MethodChannel;
+
+import 'package:ffi/ffi.dart';
+import 'package:logging/logging.dart';
+
+import 'src/flutter_taglib_bindings.dart' as bindings;
+
+final Logger _logger = Logger('flutter_taglib');
+
+/// Embedded picture metadata in an audio file.
+class Picture {
+  const Picture({
+    required this.bytes,
+    required this.mimeType,
+    this.pictureType = 'Front Cover',
+    this.description,
+  });
+
+  final Uint8List bytes;
+  final String mimeType;
+  final String pictureType;
+  final String? description;
+}
+
+/// High-level API for reading and writing music metadata using TagLib.
+///
+/// Under the hood, this uses Native Assets to compile and link TagLib natively.
+///
+/// Example:
+/// ```dart
+/// final file = TagLibFile.open('path/to/song.mp3');
+/// if (file != null) {
+///   print('Title: ${file.title}');
+///   print('Artist: ${file.artist}');
+///   print('Duration: ${file.duration}');
+///
+///   file.title = 'New Title';
+///   file.save();
+///   file.close();
+/// }
+/// ```
+/// Audio properties reading style mode.
+enum TagLibAudioPropertiesStyle {
+  /// Fast mode: Only reads stream header metadata without full scanning. Recommended for fast batch scanning.
+  fast(0),
+  /// Average mode: Balanced default reading mode.
+  average(1),
+  /// Accurate mode: Full audio stream scan.
+  accurate(2),
+  /// None mode: Skip reading audio properties completely (duration/bitrate will return 0).
+  none(3);
+
+  final int value;
+  const TagLibAudioPropertiesStyle(this.value);
+}
+
+/// Lightweight song metadata record returned from batch scanning across worker Isolates.
+class BatchTagMetadata {
+  const BatchTagMetadata({
+    required this.path,
+    required this.title,
+    required this.artist,
+    required this.album,
+    required this.genre,
+    this.comment = '',
+    required this.year,
+    required this.track,
+    required this.duration,
+    required this.bitrate,
+    required this.sampleRate,
+    required this.channels,
+    required this.hasCover,
+    this.coverData,
+    required this.success,
+    this.error,
+  });
+
+  final String path;
+  final String title;
+  final String artist;
+  final String album;
+  final String genre;
+  final String comment;
+  final int year;
+  final int track;
+  final Duration duration;
+  final int bitrate;
+  final int sampleRate;
+  final int channels;
+  final bool hasCover;
+  final Uint8List? coverData;
+  final bool success;
+  final String? error;
+}
+
+class TagLibFile {
+  static const MethodChannel _channel = MethodChannel('flutter_taglib');
+
+  /// Tracks the most recent failure message during opening, writing permission, or saving.
+  static String? lastError;
+
+  static bool? _isSupportedCached;
+  static Object? _lastSupportProbeError;
+  static StackTrace? _lastSupportProbeStackTrace;
+
+  /// Resets the cached platform support check state.
+  ///
+  /// This causes the next call to [isSupported] to re-probe the native library.
+  static void resetSupportCache() {
+    _isSupportedCached = null;
+    _lastSupportProbeError = null;
+    _lastSupportProbeStackTrace = null;
+  }
+
+  /// Overrides the desktop binary download source used on Windows and Linux.
+  ///
+  /// Call this before [prepareDesktopLibrary], [openAsync], or [isSupported].
+  @Deprecated(
+    'No longer supported. Setting a custom binary source at runtime has no effect. '
+    'If you need a custom binary source, configure it via build-time environment variables or configuration files.',
+  )
+  static void configureDesktopBinarySource({String? baseUrl, String? version}) {
+    bindings.configureDesktopBinarySource(baseUrl: baseUrl, version: version);
+    resetSupportCache();
+  }
+
+  /// Downloads and loads the prebuilt desktop binary when running on Windows
+  /// or Linux. Other platforms return immediately.
+  @Deprecated(
+    'No longer needed when using Native Assets. Native libraries are now bundled at build time.',
+  )
+  static Future<void> prepareDesktopLibrary() async {
+    await bindings.ensureDesktopLibraryReady();
+    resetSupportCache();
+  }
+
+  /// Returns `true` if the native TagLib library is supported and successfully loaded.
+  static bool get isSupported {
+    if (_isSupportedCached != null) return _isSupportedCached!;
+    try {
+      // `taglib_bridge_close(nullptr)` is a no-op in the native bridge, so this
+      // lets us verify symbol availability without depending on filesystem access.
+      bindings.taglib_bridge_close(ffi.nullptr);
+      _isSupportedCached = true;
+      _lastSupportProbeError = null;
+      _lastSupportProbeStackTrace = null;
+    } catch (e, stackTrace) {
+      _logger.warning('flutter_taglib support probe failed: $e');
+      _lastSupportProbeError = e;
+      _lastSupportProbeStackTrace = stackTrace;
+      _isSupportedCached = false;
+    }
+    return _isSupportedCached!;
+  }
+
+  /// Collects runtime diagnostics to help debug platform support issues.
+  static Future<Map<String, String>> collectDiagnostics() async {
+    final diagnostics = <String, String>{
+      'platform': Platform.operatingSystem,
+      'platformVersion': Platform.operatingSystemVersion,
+      'isSupportedCached': '$_isSupportedCached',
+      'usesDownloadedDesktopBinary': '${bindings.usesDownloadedDesktopBinary}',
+    };
+
+    final supported = isSupported;
+    diagnostics['isSupported'] = '$supported';
+
+    if (_lastSupportProbeError != null) {
+      diagnostics['supportProbeError'] = _lastSupportProbeError.toString();
+    }
+    if (_lastSupportProbeStackTrace != null) {
+      final lines = _lastSupportProbeStackTrace
+          .toString()
+          .split('\n')
+          .take(8)
+          .join('\n');
+      diagnostics['supportProbeStack'] = lines;
+    }
+    if (bindings.loadedDesktopBinaryPath != null) {
+      diagnostics['desktopBinaryPath'] = bindings.loadedDesktopBinaryPath!;
+    }
+    if (bindings.desktopBinaryError != null) {
+      diagnostics['desktopBinaryError'] = bindings.desktopBinaryError!;
+    }
+
+    try {
+      final pluginInfo = await _channel.invokeMapMethod<String, dynamic>(
+        'debugInfo',
+      );
+      if (pluginInfo != null) {
+        diagnostics['pluginDebugInfo'] = pluginInfo.toString();
+      } else {
+        diagnostics['pluginDebugInfo'] = 'null';
+      }
+    } catch (e) {
+      diagnostics['pluginDebugInfoError'] = e.toString();
+    }
+
+    return diagnostics;
+  }
+
+  /// Requests write permission for the given URI on Android.
+  ///
+  /// For Scoped Storage (Android 10+), modifying files from public directories
+  /// may require user approval. This method first tries to reuse any existing
+  /// writable access, including SAF tree permissions for files inside a picked
+  /// directory, and only falls back to a system permission request when needed.
+  /// It returns the URI that has write permission granted, or `null` if permission was denied.
+  /// On other platforms, it immediately returns the original URI.
+  static Future<String?> requestWritePermission(String uri) async {
+    if (!Platform.isAndroid) return uri;
+    if (!isSupported) {
+      lastError = 'flutter_taglib is not supported or has been disabled on this platform.';
+      throw UnsupportedError(
+        'flutter_taglib is not supported or has been disabled on this platform.',
+      );
+    }
+    try {
+      final result = await _channel.invokeMethod<String>('requestWritePermission', {
+        'uri': uri,
+      });
+      if (result == null) {
+        lastError = 'requestWritePermission returned null (permission denied or directory not write-authorized) for $uri';
+        debugPrint('[flutter_taglib] $lastError');
+      }
+      return result;
+    } catch (e) {
+      _logger.warning('requestWritePermission failed: $e');
+      lastError = 'requestWritePermission failed: $e';
+      debugPrint('[flutter_taglib] $lastError');
+      return null;
+    }
+  }
+
+  static bool _androidContextInitialized = false;
+
+  /// Ensures native JNI context (JavaVM and Application Context) is initialized on Android.
+  static Future<void> _initAndroidNativeContext() async {
+    if (!Platform.isAndroid || _androidContextInitialized) return;
+    try {
+      if (isSupported) {
+        // Accessing FFI symbol forces Dart FFI to load libflutter_taglib_native.so into process memory
+        bindings.taglib_bridge_close(ffi.nullptr);
+      }
+      final bool? success =
+          await _channel.invokeMethod<bool>('initNativeContext');
+      if (success == true) {
+        _androidContextInitialized = true;
+        _logger.fine('initNativeContext succeeded');
+      }
+    } catch (e) {
+      _logger.warning('initNativeContext failed: $e');
+    }
+  }
+
+  /// Recursively lists supported audio files in a SAF directory or SAF tree URI on Android.
+  /// Returns a list of document `content://` URIs.
+  static Future<List<String>> listSafDirectory(String uri) async {
+    if (!Platform.isAndroid) return [];
+    if (!isSupported) return [];
+    await _initAndroidNativeContext();
+    try {
+      final List<dynamic>? result = await _channel.invokeMethod<List<dynamic>>(
+        'listSafDirectory',
+        {'uri': uri},
+      );
+      return result?.cast<String>() ?? <String>[];
+    } catch (e) {
+      _logger.warning('listSafDirectory failed: $e');
+      lastError = 'listSafDirectory failed: $e';
+      return <String>[];
+    }
+  }
+
+  /// Requests storage / media permissions on Android.
+  /// Returns `true` if storage permission is granted.
+  static Future<bool> requestStoragePermission() async {
+    if (!Platform.isAndroid) return true;
+    if (!isSupported) return false;
+    try {
+      final bool? granted = await _channel.invokeMethod<bool>(
+        'requestStoragePermission',
+      );
+      return granted ?? false;
+    } catch (e) {
+      _logger.warning('requestStoragePermission failed: $e');
+      return false;
+    }
+  }
+
+  /// Checks if storage / media permission is granted on Android.
+  static Future<bool> checkStoragePermission() async {
+    if (!Platform.isAndroid) return true;
+    if (!isSupported) return false;
+    try {
+      final bool? granted = await _channel.invokeMethod<bool>(
+        'checkStoragePermission',
+      );
+      return granted ?? false;
+    } catch (e) {
+      _logger.warning('checkStoragePermission failed: $e');
+      return false;
+    }
+  }
+
+  /// Opens the native Android SAF directory picker (`ACTION_OPEN_DOCUMENT_TREE`),
+  /// requests persistable URI permissions, saves the POSIX-to-SAF tree mapping,
+  /// and returns the selected POSIX directory path (or `null` if cancelled).
+  static Future<String?> pickSafDirectory() async {
+    if (!Platform.isAndroid) return null;
+    if (!isSupported) return null;
+    await _initAndroidNativeContext();
+    try {
+      final String? path = await _channel.invokeMethod<String>(
+        'pickSafDirectory',
+      );
+      return path;
+    } catch (e) {
+      _logger.warning('pickSafDirectory failed: $e');
+      lastError = 'pickSafDirectory failed: $e';
+      return null;
+    }
+  }
+
+  /// Manually saves a POSIX physical directory path to SAF tree URI mapping in SharedPreferences on Android.
+  static Future<bool> saveSafTreeMapping(
+    String posixPath,
+    String treeUri,
+  ) async {
+    if (!Platform.isAndroid) return false;
+    if (!isSupported) return false;
+    try {
+      final bool? success = await _channel.invokeMethod<bool>(
+        'saveSafTreeMapping',
+        {'posixPath': posixPath, 'treeUri': treeUri},
+      );
+      return success ?? false;
+    } catch (e) {
+      _logger.warning('saveSafTreeMapping failed: $e');
+      return false;
+    }
+  }
+
+  ffi.Pointer<bindings.TagLibBridgeFile> _handle;
+
+  /// The filesystem path or content URI of the opened audio file.
+  String path;
+  bool _isClosed = false;
+
+  TagLibFile._(this._handle, this.path);
+
+  /// Opens an audio file by path.
+  ///
+  /// Returns `null` if the file could not be opened or is invalid.
+  static TagLibFile? open(
+    String path, {
+    TagLibAudioPropertiesStyle audioPropertiesStyle = TagLibAudioPropertiesStyle.average,
+  }) {
+    if (!isSupported) {
+      throw UnsupportedError(
+        'flutter_taglib is not supported or has been disabled on this platform.',
+      );
+    }
+    final pathPtr = path.toNativeUtf8();
+    try {
+      final handle = bindings.taglib_bridge_open_with_style(
+        pathPtr.cast<ffi.Char>(),
+        audioPropertiesStyle.value,
+      );
+      if (handle == ffi.nullptr) {
+        _logger.severe(
+          'Failed to open path "$path". Check native/platform logs for details.',
+        );
+        return null;
+      }
+      return TagLibFile._(handle, path);
+    } finally {
+      malloc.free(pathPtr);
+    }
+  }
+
+  static int lastOpenFfiCount = 0;
+  static int lastOpenFdFallbackCount = 0;
+  static int lastOpenContentUriCount = 0;
+
+  static void resetOpenStats() {
+    lastOpenFfiCount = 0;
+    lastOpenFdFallbackCount = 0;
+    lastOpenContentUriCount = 0;
+  }
+
+  /// Opens an audio file by path asynchronously.
+  ///
+  /// On Android, if [writeAccess] is `true`, this method will automatically request
+  /// write permissions for Scoped Storage if needed before opening the file.
+  static Future<TagLibFile?> openAsync(
+    String path, {
+    bool writeAccess = false,
+    TagLibAudioPropertiesStyle audioPropertiesStyle = TagLibAudioPropertiesStyle.average,
+  }) async {
+    lastError = null;
+    if (Platform.isWindows || Platform.isLinux) {
+      await prepareDesktopLibrary();
+    }
+    if (!isSupported) {
+      lastError = 'flutter_taglib is not supported or has been disabled on this platform.';
+      throw UnsupportedError(
+        'flutter_taglib is not supported or has been disabled on this platform.',
+      );
+    }
+    String targetPath = path;
+    if (writeAccess && Platform.isAndroid) {
+      final grantedUri = await requestWritePermission(path);
+      if (grantedUri == null) {
+        _logger.warning('Write permission denied for $path');
+        lastError ??= 'Write permission denied for $path';
+        debugPrint('[flutter_taglib] $lastError');
+        return null;
+      }
+      targetPath = grantedUri;
+    }
+
+    final isContentUri = Platform.isAndroid && targetPath.startsWith('content://');
+
+    if (isContentUri) {
+      lastOpenContentUriCount++;
+      final fd = await _openAndroidFileDescriptor(
+        targetPath,
+        mode: writeAccess ? 'rw' : 'r',
+      );
+      if (fd == null) {
+        _logger.warning(
+          'Failed to open Android file descriptor for $targetPath',
+        );
+        lastError ??= 'Failed to open Android file descriptor for $targetPath';
+        debugPrint('[flutter_taglib] $lastError');
+        return null;
+      }
+      return TagLibFile.openFd(
+        fd,
+        path: targetPath,
+        audioPropertiesStyle: audioPropertiesStyle,
+      );
+    }
+
+    // Try direct native FFI open first (fast path for POSIX paths on all platforms including Android)
+    final directFile = TagLibFile.open(
+      targetPath,
+      audioPropertiesStyle: audioPropertiesStyle,
+    );
+    if (directFile != null) {
+      lastOpenFfiCount++;
+      return directFile;
+    }
+
+    // Fallback for Android POSIX paths if direct FFI open failed (e.g. Scoped Storage restriction)
+    if (Platform.isAndroid) {
+      lastOpenFdFallbackCount++;
+      debugPrint(
+        '[flutter_taglib openAsync] Native TagLibFile.open returned null for POSIX path: $targetPath. Falling back to _openAndroidFileDescriptor...',
+      );
+      final fd = await _openAndroidFileDescriptor(
+        targetPath,
+        mode: writeAccess ? 'rw' : 'r',
+      );
+      if (fd != null) {
+        return TagLibFile.openFd(
+          fd,
+          path: targetPath,
+          audioPropertiesStyle: audioPropertiesStyle,
+        );
+      }
+    }
+
+    _logger.severe(
+      'Failed to open path "$targetPath". Check native/platform logs for details.',
+    );
+    lastError = 'Failed to open path via TagLib bridge for "$targetPath". File might be corrupted or not exist.';
+    debugPrint('[flutter_taglib] $lastError');
+    return null;
+  }
+
+  /// Batch reads metadata for a list of file paths across multiple worker Isolates concurrently.
+  ///
+  /// [filePaths]: List of file paths to process.
+  /// [isolateCount]: Number of parallel Isolates to spawn. Defaults to 0 (Auto),
+  /// [readCover]: Whether to extract embedded cover art image bytes (`coverData`).
+  /// Defaults to `false` for maximum scanning performance.
+  static Future<List<BatchTagMetadata>> readBatchAsync(
+    List<String> filePaths, {
+    int isolateCount = 0,
+    TagLibAudioPropertiesStyle audioPropertiesStyle = TagLibAudioPropertiesStyle.average,
+    bool readCover = false,
+    void Function(int processedCount, int totalCount)? onProgress,
+  }) async {
+    if (filePaths.isEmpty) return [];
+
+    if (Platform.isWindows || Platform.isLinux) {
+      await prepareDesktopLibrary();
+    }
+    if (Platform.isAndroid) {
+      await _initAndroidNativeContext();
+    }
+    if (!isSupported) {
+      throw UnsupportedError(
+        'flutter_taglib is not supported or has been disabled on this platform.',
+      );
+    }
+
+    Map<String, String>? safUriMap;
+    if (Platform.isAndroid && filePaths.isNotEmpty) {
+      bool isPosixReadable = true;
+      final samplePath = filePaths.firstWhere(
+        (p) => !p.startsWith('content://'),
+        orElse: () => '',
+      );
+      if (samplePath.isNotEmpty) {
+        try {
+          final f = File(samplePath);
+          final raf = f.openSync(mode: FileMode.read);
+          raf.closeSync();
+          isPosixReadable = true;
+        } catch (_) {
+          isPosixReadable = false;
+        }
+      }
+      if (!isPosixReadable) {
+        safUriMap = await _resolveAndroidSafTreeMappings(filePaths);
+      }
+    }
+
+    final targetIsolates =
+        (isolateCount <= 0) ? Platform.numberOfProcessors : isolateCount;
+    final effectiveIsolates = targetIsolates.clamp(1, filePaths.length);
+    final chunkSize = (filePaths.length / effectiveIsolates).ceil();
+
+    final receivePort = ReceivePort();
+    final completer = Completer<List<BatchTagMetadata>>();
+
+    final activeWorkers = <int>{};
+    final workerProgress = <int, int>{};
+    final workerResults = <int, List<Map<String, dynamic>>>{};
+
+    for (int i = 0; i < effectiveIsolates; i++) {
+      final start = i * chunkSize;
+      final end = (start + chunkSize).clamp(0, filePaths.length);
+      if (start >= end) continue;
+
+      final chunk = filePaths.sublist(start, end);
+      activeWorkers.add(i);
+      workerProgress[i] = 0;
+
+      final params = _TagLibBatchWorkerParams(
+        sendPort: receivePort.sendPort,
+        workerId: i,
+        paths: chunk,
+        audioPropertiesStyleValue: audioPropertiesStyle.value,
+        readCover: readCover,
+        safUriMap: safUriMap,
+      );
+
+      try {
+        await Isolate.spawn(_tagLibBatchWorkerEntryPoint, params);
+      } catch (e) {
+        _logger.warning('Failed to spawn worker Isolate $i: $e');
+        activeWorkers.remove(i);
+        final fallbackResults = <Map<String, dynamic>>[];
+        for (final p in chunk) {
+          final item = _readSingleFileMetadataMap(
+            p,
+            audioPropertiesStyle.value,
+            readCover,
+            safUriMap?[p],
+          );
+          fallbackResults.add(item);
+        }
+        workerResults[i] = fallbackResults;
+        workerProgress[i] = chunk.length;
+      }
+    }
+
+    if (activeWorkers.isEmpty) {
+      receivePort.close();
+      return _buildCombinedBatchResults(effectiveIsolates, workerResults);
+    }
+
+    receivePort.listen((message) {
+      if (message is Map<String, dynamic>) {
+        final type = message['type'] as String;
+        final workerId = message['workerId'] as int;
+
+        if (type == 'progress') {
+          final processed = message['processed'] as int;
+          workerProgress[workerId] = processed;
+          final totalProcessed = workerProgress.values.fold(0, (sum, val) => sum + val);
+          onProgress?.call(totalProcessed, filePaths.length);
+        } else if (type == 'complete') {
+          final results = (message['results'] as List).cast<Map<String, dynamic>>();
+          workerResults[workerId] = results;
+          activeWorkers.remove(workerId);
+
+          if (activeWorkers.isEmpty) {
+            receivePort.close();
+            completer.complete(
+              _buildCombinedBatchResults(effectiveIsolates, workerResults),
+            );
+          }
+        }
+      }
+    });
+
+    return completer.future;
+  }
+
+  static Future<Map<String, String>> _resolveAndroidSafTreeMappings(
+    List<String> filePaths,
+  ) async {
+    final result = <String, String>{};
+    if (!Platform.isAndroid) return result;
+    try {
+      final jsonStr = await _channel.invokeMethod<String>('getSafTreeMappings');
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        final Map<String, dynamic> rawMap = json.decode(jsonStr) as Map<String, dynamic>;
+        for (final filePath in filePaths) {
+          if (filePath.startsWith('content://')) continue;
+          final normalizedFile = filePath.replaceAll('\\', '/').toLowerCase();
+          String? bestRoot;
+          String? bestTreeUriStr;
+          for (final rootPath in rawMap.keys) {
+            final normalizedRoot = rootPath.replaceAll('\\', '/').toLowerCase();
+            if (normalizedFile.startsWith(normalizedRoot)) {
+              if (bestRoot == null || rootPath.length > bestRoot.length) {
+                bestRoot = rootPath;
+                bestTreeUriStr = rawMap[rootPath] as String?;
+              }
+            }
+          }
+          if (bestRoot != null && bestTreeUriStr != null) {
+            final relativePath = filePath.substring(bestRoot.length).replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
+            final treeUri = Uri.parse(bestTreeUriStr);
+            final treeId = Uri.decodeComponent(treeUri.pathSegments.last);
+            final childDocId = relativePath.isEmpty ? treeId : '$treeId/$relativePath';
+            final documentUri = Uri(
+              scheme: 'content',
+              host: treeUri.host,
+              pathSegments: [
+                'tree',
+                treeUri.pathSegments.last,
+                'document',
+                childDocId,
+              ],
+            ).toString();
+            result[filePath] = documentUri;
+          }
+        }
+      }
+    } catch (e) {
+      _logger.warning('Failed to resolve SAF tree mappings: $e');
+    }
+    return result;
+  }
+
+  static List<BatchTagMetadata> _buildCombinedBatchResults(
+    int totalWorkers,
+    Map<int, List<Map<String, dynamic>>> workerResults,
+  ) {
+    final combined = <BatchTagMetadata>[];
+    for (int id = 0; id < totalWorkers; id++) {
+      final list = workerResults[id] ?? [];
+      for (final item in list) {
+        combined.add(
+          BatchTagMetadata(
+            path: item['path'] as String,
+            title: (item['title'] as String?) ?? '',
+            artist: (item['artist'] as String?) ?? '',
+            album: (item['album'] as String?) ?? '',
+            genre: (item['genre'] as String?) ?? '',
+            comment: (item['comment'] as String?) ?? '',
+            year: (item['year'] as int?) ?? 0,
+            track: (item['track'] as int?) ?? 0,
+            duration: Duration(milliseconds: (item['durationMs'] as int?) ?? 0),
+            bitrate: (item['bitrate'] as int?) ?? 0,
+            sampleRate: (item['sampleRate'] as int?) ?? 0,
+            channels: (item['channels'] as int?) ?? 0,
+            hasCover: item['hasCover'] == true,
+            coverData: item['coverData'] as Uint8List?,
+            success: item['success'] == true,
+            error: item['error'] as String?,
+          ),
+        );
+      }
+    }
+    return combined;
+  }
+
+  /// Opens an audio file by its Unix File Descriptor (FD).
+  ///
+  /// This is particularly useful on Android to bypass Scoped Storage limitations,
+  /// allowing you to pass the file descriptor of a file opened via Storage Access Framework
+  /// or MediaStore.
+  ///
+  /// Returns `null` if the file could not be opened.
+  static TagLibFile? openFd(
+    int fd, {
+    String path = '',
+    TagLibAudioPropertiesStyle audioPropertiesStyle = TagLibAudioPropertiesStyle.average,
+  }) {
+    if (!isSupported) {
+      throw UnsupportedError(
+        'flutter_taglib is not supported or has been disabled on this platform.',
+      );
+    }
+    final handle = bindings.taglib_bridge_open_fd_with_style(
+      fd,
+      audioPropertiesStyle.value,
+    );
+    if (handle == ffi.nullptr) {
+      _logger.severe(
+        'Failed to open FD $fd. Check native/platform logs for details.',
+      );
+      return null;
+    }
+    return TagLibFile._(handle, path);
+  }
+
+  /// Requests Android write permission for this file, and if granted,
+  /// reopens the file stream in read-write mode internally.
+  ///
+  /// This must be called **before** modifying metadata fields, as reopening the file
+  /// will discard any unsaved in-memory changes.
+  /// Returns `true` if write access is obtained, or `false` otherwise.
+  Future<bool> requestWriteAccess() async {
+    if (!Platform.isAndroid) return true;
+    _checkClosed();
+
+    final grantedUri = await TagLibFile.requestWritePermission(path);
+    if (grantedUri == null) return false;
+
+    TagLibFile? reopened;
+    if (grantedUri.startsWith('content://')) {
+      final fd = await _openAndroidFileDescriptor(grantedUri, mode: 'rw');
+      if (fd == null) return false;
+      reopened = TagLibFile.openFd(fd, path: path);
+    } else {
+      reopened = TagLibFile.open(grantedUri);
+    }
+
+    if (reopened == null) {
+      return false;
+    }
+
+    bindings.taglib_bridge_close(_handle);
+    _handle = reopened._handle;
+    reopened._isClosed = true;
+    return true;
+  }
+
+  /// Saves any changes made to the file metadata.
+  ///
+  /// Returns `true` on success, `false` on failure.
+  bool save() {
+    _checkClosed();
+    final success = bindings.taglib_bridge_save(_handle) == 1;
+    if (!success) {
+      _logger.severe(
+        'Failed to save metadata changes. Check native/platform logs for details.',
+      );
+      lastError = 'Failed to save metadata changes via native TagLib taglib_bridge_save.';
+      debugPrint('[flutter_taglib] $lastError');
+    }
+    return success;
+  }
+
+  /// Closes the file and releases native resources.
+  ///
+  /// Any methods called on this object after [close] will throw a [StateError].
+  void close() {
+    if (!_isClosed) {
+      bindings.taglib_bridge_close(_handle);
+      _isClosed = true;
+    }
+  }
+
+  void _checkClosed() {
+    if (_isClosed) {
+      throw StateError('TagLibFile is closed.');
+    }
+  }
+
+  // --- Getters / Setters ---
+
+  /// The song title.
+  String get title {
+    _checkClosed();
+    final ptr = bindings.taglib_bridge_get_title(_handle);
+    return ptr.cast<Utf8>().toDartString();
+  }
+
+  set title(String value) {
+    _checkClosed();
+    final ptr = value.toNativeUtf8();
+    try {
+      bindings.taglib_bridge_set_title(_handle, ptr.cast<ffi.Char>());
+    } finally {
+      malloc.free(ptr);
+    }
+  }
+
+  /// The artist name.
+  String get artist {
+    _checkClosed();
+    final ptr = bindings.taglib_bridge_get_artist(_handle);
+    return ptr.cast<Utf8>().toDartString();
+  }
+
+  set artist(String value) {
+    _checkClosed();
+    final ptr = value.toNativeUtf8();
+    try {
+      bindings.taglib_bridge_set_artist(_handle, ptr.cast<ffi.Char>());
+    } finally {
+      malloc.free(ptr);
+    }
+  }
+
+  /// The album name.
+  String get album {
+    _checkClosed();
+    final ptr = bindings.taglib_bridge_get_album(_handle);
+    return ptr.cast<Utf8>().toDartString();
+  }
+
+  set album(String value) {
+    _checkClosed();
+    final ptr = value.toNativeUtf8();
+    try {
+      bindings.taglib_bridge_set_album(_handle, ptr.cast<ffi.Char>());
+    } finally {
+      malloc.free(ptr);
+    }
+  }
+
+  /// The genre name.
+  String get genre {
+    _checkClosed();
+    final ptr = bindings.taglib_bridge_get_genre(_handle);
+    return ptr.cast<Utf8>().toDartString();
+  }
+
+  set genre(String value) {
+    _checkClosed();
+    final ptr = value.toNativeUtf8();
+    try {
+      bindings.taglib_bridge_set_genre(_handle, ptr.cast<ffi.Char>());
+    } finally {
+      malloc.free(ptr);
+    }
+  }
+
+  /// The comment.
+  String get comment {
+    _checkClosed();
+    final ptr = bindings.taglib_bridge_get_comment(_handle);
+    return ptr.cast<Utf8>().toDartString();
+  }
+
+  set comment(String value) {
+    _checkClosed();
+    final ptr = value.toNativeUtf8();
+    try {
+      bindings.taglib_bridge_set_comment(_handle, ptr.cast<ffi.Char>());
+    } finally {
+      malloc.free(ptr);
+    }
+  }
+
+  /// The release year.
+  int get year {
+    _checkClosed();
+    return bindings.taglib_bridge_get_year(_handle);
+  }
+
+  set year(int value) {
+    _checkClosed();
+    bindings.taglib_bridge_set_year(_handle, value);
+  }
+
+  /// The track number.
+  int get track {
+    _checkClosed();
+    return bindings.taglib_bridge_get_track(_handle);
+  }
+
+  set track(int value) {
+    _checkClosed();
+    bindings.taglib_bridge_set_track(_handle, value);
+  }
+
+  // --- Audio Properties ---
+
+  /// Duration of the audio file.
+  Duration get duration {
+    _checkClosed();
+    final milliseconds = bindings.taglib_bridge_get_duration(_handle);
+    return Duration(milliseconds: milliseconds);
+  }
+
+  /// Bitrate in kbps.
+  int get bitrate {
+    _checkClosed();
+    return bindings.taglib_bridge_get_bitrate(_handle);
+  }
+
+  /// Sample rate in Hz.
+  int get sampleRate {
+    _checkClosed();
+    return bindings.taglib_bridge_get_samplerate(_handle);
+  }
+
+  /// Number of channels.
+  int get channels {
+    _checkClosed();
+    return bindings.taglib_bridge_get_channels(_handle);
+  }
+
+  /// Bitrate mode (e.g. 'CBR', 'VBR', or 'Unknown').
+  String get bitrateMode {
+    _checkClosed();
+    final ptr = bindings.taglib_bridge_get_bitrate_mode(_handle);
+    if (ptr == ffi.nullptr) return 'Unknown';
+    return ptr.cast<Utf8>().toDartString();
+  }
+
+  /// The audio format of the file, detected from its contents rather than its
+  /// file extension.
+  ///
+  /// Returns an uppercase token such as `MP3`, `FLAC`, `OPUS`, `VORBIS`, `AAC`,
+  /// `ALAC`, `WAV`, `AIFF`, `APE`, `WAVPACK`, `MPC`, `TTA`, `WMA`, `DSF`, `DFF`,
+  /// `OGGFLAC`, `SPEEX`, `MP1`, `MP2`, or a tracker format (`MOD`, `S3M`, `IT`,
+  /// `XM`). Formats that TagLib supports but this plugin does not name fall back
+  /// to a token derived from the underlying TagLib class, and `null` is returned
+  /// when the format cannot be determined at all.
+  ///
+  /// Note that MP4/M4A files report their codec (`AAC` or `ALAC`) instead of the
+  /// container, falling back to `MP4` when the codec cannot be determined.
+  String? get format {
+    _checkClosed();
+    final ptr = bindings.taglib_bridge_get_format(_handle);
+    if (ptr == ffi.nullptr) return null;
+    final value = ptr.cast<Utf8>().toDartString();
+    return value.isEmpty ? null : value;
+  }
+
+  /// Whether the audio is losslessly encoded, or `null` when it cannot be
+  /// determined.
+  ///
+  /// This is resolved from the encoded stream rather than inferred from
+  /// [format], because several containers carry either kind of audio: MP4 holds
+  /// AAC or ALAC, WMA has a lossless profile, WavPack has a hybrid mode, and
+  /// WAV/AIFF usually hold PCM but may be compressed.
+  ///
+  /// Tracker formats (`MOD`, `S3M`, `IT`, `XM`) return `null`, since they
+  /// sequence sampled instruments and the distinction does not apply.
+  bool? get isLossless {
+    _checkClosed();
+    final result = bindings.taglib_bridge_is_lossless(_handle);
+    if (result < 0) return null;
+    return result == 1;
+  }
+
+  /// Detailed audio properties of the file.
+  AudioInfo get audioInfo {
+    _checkClosed();
+    return AudioInfo(
+      format: format,
+      isLossless: isLossless,
+      duration: duration,
+      bitrate: bitrate,
+      bitrateMode: bitrateMode,
+      sampleRate: sampleRate,
+      channels: channels,
+    );
+  }
+
+  // --- Album Art / Cover APIs ---
+
+  /// Returns `true` if this file has cover art.
+  bool get hasCover {
+    _checkClosed();
+    return bindings.taglib_bridge_has_cover(_handle) == 1;
+  }
+
+  /// Returns all embedded pictures in the file.
+  ///
+  /// The first picture is typically the front cover.
+  List<Picture> get pictures {
+    _checkClosed();
+    final picturesHandle = bindings.taglib_bridge_pictures_get(_handle);
+    if (picturesHandle == ffi.nullptr) return const <Picture>[];
+
+    final result = <Picture>[];
+    try {
+      final count = bindings.taglib_bridge_pictures_size(picturesHandle);
+      for (var index = 0; index < count; index++) {
+        final dataSize = bindings.taglib_bridge_pictures_data_size(
+          picturesHandle,
+          index,
+        );
+        if (dataSize == 0) {
+          continue;
+        }
+
+        final buffer = malloc<ffi.Uint8>(dataSize);
+        try {
+          final copied = bindings.taglib_bridge_pictures_data(
+            picturesHandle,
+            index,
+            buffer,
+            dataSize,
+          );
+          if (copied != 1) {
+            continue;
+          }
+
+          final bytes = Uint8List.fromList(buffer.asTypedList(dataSize));
+          final mimeType =
+              _pointerToString(
+                bindings.taglib_bridge_pictures_mime_type(
+                  picturesHandle,
+                  index,
+                ),
+              ) ??
+              'image/jpeg';
+          final pictureType =
+              _pointerToString(
+                bindings.taglib_bridge_pictures_picture_type(
+                  picturesHandle,
+                  index,
+                ),
+              ) ??
+              'Front Cover';
+          final description = _pointerToString(
+            bindings.taglib_bridge_pictures_description(picturesHandle, index),
+          );
+
+          result.add(
+            Picture(
+              bytes: bytes,
+              mimeType: mimeType,
+              pictureType: pictureType,
+              description: description,
+            ),
+          );
+        } finally {
+          malloc.free(buffer);
+        }
+      }
+    } finally {
+      bindings.taglib_bridge_pictures_free(picturesHandle);
+    }
+
+    return result;
+  }
+
+  /// Retrieves the cover art image bytes as a [Uint8List].
+  ///
+  /// Returns picture typed `Front Cover', or the first picture, or `null` if the file has no cover art.
+  Uint8List? get coverData {
+    _checkClosed();
+    final size = bindings.taglib_bridge_front_cover_size(_handle);
+    if (size == 0) return null;
+
+    final buffer = malloc<ffi.Uint8>(size);
+    try {
+      final copied = bindings.taglib_bridge_front_cover_data(
+        _handle,
+        buffer,
+        size,
+      );
+      if (copied != 1) return null;
+      return Uint8List.fromList(buffer.asTypedList(size));
+    } finally {
+      malloc.free(buffer);
+    }
+  }
+
+  /// Mime-type of the cover art (e.g. `image/jpeg` or `image/png`).
+  ///
+  /// Returns `null` if the file has no cover art.
+  String? get coverMimeType {
+    _checkClosed();
+    if (pictures.isEmpty) return null;
+    final mime = pictures.first.mimeType.trim();
+    return mime.isEmpty ? null : mime;
+  }
+
+  /// Replaces all embedded pictures in the file.
+  ///
+  /// Pass an empty list to remove all pictures.
+  bool setPictures(List<Picture> pictures) {
+    _checkClosed();
+    final picturesHandle = bindings.taglib_bridge_pictures_create();
+    try {
+      for (final picture in pictures) {
+        if (picture.bytes.isEmpty) {
+          continue;
+        }
+
+        final mimePtr = picture.mimeType.toNativeUtf8();
+        final typePtr = picture.pictureType.toNativeUtf8();
+        final descPtr = picture.description?.toNativeUtf8();
+        final dataPtr = malloc<ffi.Uint8>(picture.bytes.length);
+        try {
+          final list = dataPtr.asTypedList(picture.bytes.length);
+          list.setAll(0, picture.bytes);
+          bindings.taglib_bridge_pictures_add(
+            picturesHandle,
+            dataPtr,
+            picture.bytes.length,
+            mimePtr.cast<ffi.Char>(),
+            typePtr.cast<ffi.Char>(),
+            descPtr == null ? ffi.nullptr : descPtr.cast<ffi.Char>(),
+          );
+        } finally {
+          malloc.free(mimePtr);
+          malloc.free(typePtr);
+          if (descPtr != null) malloc.free(descPtr);
+          malloc.free(dataPtr);
+        }
+      }
+
+      return bindings.taglib_bridge_pictures_set(_handle, picturesHandle) == 1;
+    } finally {
+      bindings.taglib_bridge_pictures_free(picturesHandle);
+    }
+  }
+
+  /// Sets or updates the cover art of the file.
+  ///
+  /// Pass `data: null` to remove the cover art.
+  /// [mimeType] defaults to `image/jpeg`.
+  ///
+  /// Returns `true` on success, `false` on failure.
+  bool setCover({required Uint8List? data, String mimeType = 'image/jpeg'}) {
+    _checkClosed();
+    if (data == null || data.isEmpty) {
+      return setPictures(const <Picture>[]);
+    }
+
+    return setPictures([Picture(bytes: data, mimeType: mimeType)]);
+  }
+
+  /// (iOS only) Lets the user pick an audio file for editing.
+  ///
+  /// The returned object tracks the working copy and can commit changes back
+  /// to the original file with [PickedAudioFile.commit].
+  static Future<PickedAudioFile?> pickAudioFileForEditing() async {
+    if (!Platform.isIOS) {
+      throw UnsupportedError(
+        'pickAudioFileForEditing is only supported on iOS.',
+      );
+    }
+
+    final result = await _channel.invokeMapMethod<String, String>(
+      'pickAudioFile',
+    );
+    if (result == null) return null;
+
+    final path = result['path'];
+    final originalPath = result['originalPath'];
+    if (path == null ||
+        path.isEmpty ||
+        originalPath == null ||
+        originalPath.isEmpty) {
+      return null;
+    }
+
+    return PickedAudioFile._(
+      path: path,
+      originalPath: originalPath,
+      name: result['name'],
+    );
+  }
+
+  static String? _pointerToString(ffi.Pointer<ffi.Char> ptr) {
+    if (ptr == ffi.nullptr) return null;
+    final text = ptr.cast<Utf8>().toDartString().trim();
+    return text.isEmpty ? null : text;
+  }
+
+  static Future<int?> _openAndroidFileDescriptor(
+    String uri, {
+    String mode = 'r',
+  }) async {
+    if (!Platform.isAndroid) return null;
+    try {
+      return await _channel.invokeMethod<int>('openFileDescriptor', {
+        'uri': uri,
+        'mode': mode,
+      });
+    } catch (e) {
+      _logger.warning('openFileDescriptor failed: $e');
+      lastError = 'openFileDescriptor failed for $uri with mode $mode: $e';
+      debugPrint('[flutter_taglib] $lastError');
+      return null;
+    }
+  }
+
+  /// (iOS only) Lets the user pick a directory and returns a handle that can
+  /// be disposed to stop security-scoped access.
+  ///
+  /// The plugin already starts access for the selected directory before this
+  /// method returns.
+  static Future<AuthorizedDirectory?> pickAuthorizedDirectory() async {
+    if (!Platform.isIOS) {
+      throw UnsupportedError(
+        'pickAuthorizedDirectory is only supported on iOS.',
+      );
+    }
+
+    final result = await _channel.invokeMapMethod<String, String>(
+      'pickAndAuthorizeDirectory',
+    );
+    final path = result?['path'];
+    if (path == null || path.isEmpty) return null;
+
+    return AuthorizedDirectory._(path);
+  }
+
+  /// (iOS only) Restores a previously authorized directory bookmark for [path]
+  /// or one of its ancestor directories.
+  static Future<AuthorizedDirectory?> restoreAuthorizedDirectory(
+    String path,
+  ) async {
+    if (!Platform.isIOS) return null;
+
+    final result = await _channel.invokeMapMethod<String, dynamic>(
+      'restoreDirectoryAccess',
+      {'path': path},
+    );
+    final authorizedPath = result?['path'] as String?;
+    if (authorizedPath == null || authorizedPath.isEmpty) return null;
+
+    return AuthorizedDirectory._(authorizedPath);
+  }
+
+  /// Retrieves a copy of all properties (metadata fields) as a map of keys to lists of values.
+  /// Standard keys include 'TITLE', 'ARTIST', 'ALBUM', 'GENRE', 'ALBUMARTIST', 'COMPOSER', etc.
+  Map<String, List<String>> get properties {
+    _checkClosed();
+    final propsHandle = bindings.taglib_bridge_properties_get(_handle);
+    if (propsHandle == ffi.nullptr) return {};
+
+    final result = <String, List<String>>{};
+    try {
+      final size = bindings.taglib_bridge_properties_size(propsHandle);
+      for (var i = 0; i < size; i++) {
+        final keyPtr = bindings.taglib_bridge_properties_key(propsHandle, i);
+        if (keyPtr == ffi.nullptr) continue;
+        final key = keyPtr.cast<Utf8>().toDartString();
+
+        final valCount = bindings.taglib_bridge_properties_value_count(
+          propsHandle,
+          keyPtr,
+        );
+        final valList = <String>[];
+        for (var j = 0; j < valCount; j++) {
+          final valPtr = bindings.taglib_bridge_properties_value(
+            propsHandle,
+            keyPtr,
+            j,
+          );
+          if (valPtr == ffi.nullptr) continue;
+          valList.add(valPtr.cast<Utf8>().toDartString());
+        }
+        result[key] = valList;
+      }
+    } finally {
+      bindings.taglib_bridge_properties_free(propsHandle);
+    }
+    return result;
+  }
+
+  /// Sets/updates properties of the file in memory.
+  /// Call [save] afterwards to commit these changes to disk.
+  ///
+  /// Returns a map of properties that were not supported by the file format and could not be set.
+  Map<String, List<String>> setProperties(
+    Map<String, List<String>> propertiesMap,
+  ) {
+    _checkClosed();
+
+    final propsHandle = bindings.taglib_bridge_properties_create();
+    try {
+      propertiesMap.forEach((key, values) {
+        final keyPtr = key.toNativeUtf8();
+        try {
+          for (final val in values) {
+            final valPtr = val.toNativeUtf8();
+            try {
+              bindings.taglib_bridge_properties_add(
+                propsHandle,
+                keyPtr.cast<ffi.Char>(),
+                valPtr.cast<ffi.Char>(),
+              );
+            } finally {
+              malloc.free(valPtr);
+            }
+          }
+        } finally {
+          malloc.free(keyPtr);
+        }
+      });
+
+      final unsupportedHandle = bindings.taglib_bridge_properties_set(
+        _handle,
+        propsHandle,
+      );
+      if (unsupportedHandle == ffi.nullptr) return {};
+
+      final unsupportedResult = <String, List<String>>{};
+      try {
+        final size = bindings.taglib_bridge_properties_size(unsupportedHandle);
+        for (var i = 0; i < size; i++) {
+          final keyPtr = bindings.taglib_bridge_properties_key(
+            unsupportedHandle,
+            i,
+          );
+          if (keyPtr == ffi.nullptr) continue;
+          final key = keyPtr.cast<Utf8>().toDartString();
+
+          final valCount = bindings.taglib_bridge_properties_value_count(
+            unsupportedHandle,
+            keyPtr,
+          );
+          final valList = <String>[];
+          for (var j = 0; j < valCount; j++) {
+            final valPtr = bindings.taglib_bridge_properties_value(
+              unsupportedHandle,
+              keyPtr,
+              j,
+            );
+            if (valPtr == ffi.nullptr) continue;
+            valList.add(valPtr.cast<Utf8>().toDartString());
+          }
+          unsupportedResult[key] = valList;
+        }
+      } finally {
+        bindings.taglib_bridge_properties_free(unsupportedHandle);
+      }
+      return unsupportedResult;
+    } finally {
+      bindings.taglib_bridge_properties_free(propsHandle);
+    }
+  }
+}
+
+/// Represents a picked audio file on iOS.
+///
+/// On iOS, the plugin gives you a writable working copy path together with the
+/// original file path. Call [commit] after saving metadata to copy the working
+/// copy back to the original file.
+class PickedAudioFile {
+  /// The local file path of the temporary writable copy.
+  final String path;
+
+  /// The original picked file path or resource URI.
+  final String originalPath;
+
+  /// The original filename or display name, if available.
+  final String? name;
+
+  PickedAudioFile._({
+    required this.path,
+    required this.originalPath,
+    required this.name,
+  });
+
+  /// Returns `true` when the working copy differs from the original file path.
+  bool get needsCommit => path != originalPath;
+
+  /// Commits the working copy back to the original picked file.
+  Future<void> commit() {
+    return TagLibFile._channel.invokeMethod<void>('commitPickedFile', {
+      'workingPath': path,
+      'originalPath': originalPath,
+    });
+  }
+}
+
+/// Represents a security-scoped directory access handle on iOS.
+///
+/// Dispose this object when the directory is no longer needed to stop
+/// security-scoped access.
+class AuthorizedDirectory {
+  /// The path of the authorized security-scoped directory.
+  final String path;
+  bool _isDisposed = false;
+
+  AuthorizedDirectory._(this.path);
+
+  /// Stops accessing the authorized directory.
+  Future<void> dispose() async {
+    if (_isDisposed) return;
+    _isDisposed = true;
+    await TagLibFile._channel.invokeMethod<void>('stopAccessingDirectory', {
+      'path': path,
+    });
+  }
+}
+
+/// Represents detailed audio properties of a file.
+class AudioInfo {
+  /// The audio format (e.g., 'MP3', 'FLAC', 'OPUS'), or `null` if undetermined.
+  final String? format;
+
+  /// Whether the audio is losslessly encoded, or `null` if undetermined.
+  final bool? isLossless;
+
+  /// The duration of the audio.
+  final Duration duration;
+
+  /// The bitrate in kbps.
+  final int bitrate;
+
+  /// The bitrate mode (e.g., 'CBR', 'VBR', or 'Unknown').
+  final String bitrateMode;
+
+  /// The sample rate in Hz.
+  final int sampleRate;
+
+  /// The number of channels.
+  final int channels;
+
+  /// Creates an [AudioInfo] instance representing detailed audio properties.
+  AudioInfo({
+    required this.format,
+    required this.isLossless,
+    required this.duration,
+    required this.bitrate,
+    required this.bitrateMode,
+    required this.sampleRate,
+    required this.channels,
+  });
+
+  @override
+  String toString() =>
+      'AudioInfo(format: $format, isLossless: $isLossless, duration: $duration, bitrate: $bitrate kbps, bitrateMode: $bitrateMode, sampleRate: $sampleRate Hz, channels: $channels)';
+}
+
+/// Dummy class used by Flutter platform registration for Dart-only FFI platforms
+/// (macOS, Windows, Linux) to prevent CocoaPods/CMake errors while ensuring
+/// pub.dev correctly lists them as supported.
+class FlutterTaglib {
+  /// Registers this plugin with the platform-specific build system.
+  static void registerWith() {}
+}
+
+/// Commonly used standard property key constants in the TagLib properties dictionary.
+/// Used with [TagLibFile.properties] and [TagLibFile.setProperties].
+///
+/// Although using these predefined constants is recommended for IDE autocomplete support,
+/// you can still use any custom string as a property key.
+abstract final class TagProperties {
+  /// The song title (TITLE).
+  static const String title = 'TITLE';
+
+  /// The main artist/performer (ARTIST).
+  static const String artist = 'ARTIST';
+
+  /// The album name (ALBUM).
+  static const String album = 'ALBUM';
+
+  /// The track number (TRACKNUMBER).
+  static const String trackNumber = 'TRACKNUMBER';
+
+  /// The total number of tracks on the album (TRACKTOTAL).
+  static const String trackTotal = 'TRACKTOTAL';
+
+  /// The release year (YEAR).
+  static const String year = 'YEAR';
+
+  /// The release date, typically in YYYY-MM-DD format (DATE).
+  static const String date = 'DATE';
+
+  /// The genre (GENRE).
+  static const String genre = 'GENRE';
+
+  /// Comments or notes (COMMENT).
+  static const String comment = 'COMMENT';
+
+  /// The album artist, often used for compilations (ALBUMARTIST).
+  static const String albumArtist = 'ALBUMARTIST';
+
+  /// The composer (COMPOSER).
+  static const String composer = 'COMPOSER';
+
+  /// The disc/CD number (DISCNUMBER).
+  static const String discNumber = 'DISCNUMBER';
+
+  /// The total number of discs (DISCTOTAL).
+  static const String discTotal = 'DISCTOTAL';
+
+  /// Embedded lyrics, typically unsynchronized (LYRICS).
+  static const String lyrics = 'LYRICS';
+
+  /// Beats per minute (BPM).
+  static const String bpm = 'BPM';
+
+  /// The software or tool used for encoding (ENCODER).
+  static const String encoder = 'ENCODER';
+
+  /// The record label or publisher (LABEL).
+  static const String label = 'LABEL';
+
+  /// The conductor (CONDUCTOR).
+  static const String conductor = 'CONDUCTOR';
+
+  /// The arranger (ARRANGER).
+  static const String arranger = 'ARRANGER';
+
+  /// The performer (PERFORMER).
+  static const String performer = 'PERFORMER';
+
+  /// The remixer (REMIXER).
+  static const String remixer = 'REMIXER';
+
+  /// International Standard Recording Code (ISRC).
+  static const String isrc = 'ISRC';
+
+  /// The barcode (BARCODE).
+  static const String barcode = 'BARCODE';
+
+  /// The copyright notice (COPYRIGHT).
+  static const String copyright = 'COPYRIGHT';
+
+  /// The related URL (URL).
+  static const String url = 'URL';
+}
+
+class _TagLibBatchWorkerParams {
+  final SendPort sendPort;
+  final int workerId;
+  final List<String> paths;
+  final int audioPropertiesStyleValue;
+  final bool readCover;
+  final Map<String, String>? safUriMap;
+
+  _TagLibBatchWorkerParams({
+    required this.sendPort,
+    required this.workerId,
+    required this.paths,
+    required this.audioPropertiesStyleValue,
+    required this.readCover,
+    this.safUriMap,
+  });
+}
+
+Map<String, dynamic> _readSingleFileMetadataMap(
+  String filePath,
+  int styleValue,
+  bool readCover, [
+  String? targetUri,
+]) {
+  final openPath = targetUri ?? filePath;
+  final pathPtr = openPath.toNativeUtf8();
+  try {
+    final handle = bindings.taglib_bridge_open_with_style(
+      pathPtr.cast<ffi.Char>(),
+      styleValue,
+    );
+    if (handle != ffi.nullptr) {
+      final titlePtr = bindings.taglib_bridge_get_title(handle);
+      final title = titlePtr != ffi.nullptr ? titlePtr.cast<Utf8>().toDartString() : '';
+
+      final artistPtr = bindings.taglib_bridge_get_artist(handle);
+      final artist = artistPtr != ffi.nullptr ? artistPtr.cast<Utf8>().toDartString() : '';
+
+      final albumPtr = bindings.taglib_bridge_get_album(handle);
+      final album = albumPtr != ffi.nullptr ? albumPtr.cast<Utf8>().toDartString() : '';
+
+      final genrePtr = bindings.taglib_bridge_get_genre(handle);
+      final genre = genrePtr != ffi.nullptr ? genrePtr.cast<Utf8>().toDartString() : '';
+
+      final commentPtr = bindings.taglib_bridge_get_comment(handle);
+      final comment = commentPtr != ffi.nullptr ? commentPtr.cast<Utf8>().toDartString() : '';
+
+      final year = bindings.taglib_bridge_get_year(handle);
+      final track = bindings.taglib_bridge_get_track(handle);
+      final durationMs = bindings.taglib_bridge_get_duration(handle);
+      final bitrate = bindings.taglib_bridge_get_bitrate(handle);
+      final sampleRate = bindings.taglib_bridge_get_samplerate(handle);
+      final channels = bindings.taglib_bridge_get_channels(handle);
+      final hasCover = bindings.taglib_bridge_has_cover(handle) != 0;
+
+      Uint8List? coverData;
+      if (readCover && hasCover) {
+        final size = bindings.taglib_bridge_front_cover_size(handle);
+        if (size > 0) {
+          final buffer = malloc<ffi.Uint8>(size);
+          try {
+            final copied = bindings.taglib_bridge_front_cover_data(
+              handle,
+              buffer,
+              size,
+            );
+            if (copied == 1) {
+              coverData = Uint8List.fromList(buffer.asTypedList(size));
+            }
+          } finally {
+            malloc.free(buffer);
+          }
+        }
+      }
+
+      bindings.taglib_bridge_close(handle);
+
+      return {
+        'path': filePath,
+        'title': title,
+        'artist': artist,
+        'album': album,
+        'genre': genre,
+        'comment': comment,
+        'year': year,
+        'track': track,
+        'durationMs': durationMs,
+        'bitrate': bitrate,
+        'sampleRate': sampleRate,
+        'channels': channels,
+        'hasCover': hasCover,
+        'coverData': coverData,
+        'success': true,
+      };
+    } else {
+      return {
+        'path': filePath,
+        'success': false,
+      };
+    }
+  } catch (e) {
+    return {
+      'path': filePath,
+      'success': false,
+      'error': e.toString(),
+    };
+  } finally {
+    malloc.free(pathPtr);
+  }
+}
+
+void _tagLibBatchWorkerEntryPoint(_TagLibBatchWorkerParams params) {
+  final sendPort = params.sendPort;
+  final paths = params.paths;
+  final styleValue = params.audioPropertiesStyleValue;
+  final readCover = params.readCover;
+  final safUriMap = params.safUriMap;
+  final results = <Map<String, dynamic>>[];
+
+  for (int i = 0; i < paths.length; i++) {
+    final path = paths[i];
+    final item = _readSingleFileMetadataMap(
+      path,
+      styleValue,
+      readCover,
+      safUriMap?[path],
+    );
+    results.add(item);
+
+    if ((i + 1) % 10 == 0 || i == paths.length - 1) {
+      sendPort.send({
+        'type': 'progress',
+        'workerId': params.workerId,
+        'processed': i + 1,
+      });
+    }
+  }
+
+  sendPort.send({
+    'type': 'complete',
+    'workerId': params.workerId,
+    'results': results,
+  });
+}
