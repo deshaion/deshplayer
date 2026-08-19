@@ -74,13 +74,44 @@ native configuration.
 
 ### macOS
 
-For macOS, you can build the application using the standard Flutter command.
-
-*Note: You may encounter errors related to the target OS version during the build process. If this happens, you will need to open the `macos/Runner.xcworkspace` in Xcode and adjust the minimum deployment target.*
+The macOS build uses CocoaPods and CMake to compile the native
+`flutter_soloud` audio library. Install CMake before building. With Homebrew:
 
 ```bash
+brew install cmake
+```
+
+Confirm that CMake is available to the build:
+
+```bash
+cmake --version
+```
+
+The app stores cloud API tokens in the macOS Keychain. Its Keychain Sharing
+entitlement requires the Runner to be signed with an Apple Development
+certificate; ad-hoc signing is not sufficient. Configure signing in Xcode:
+
+1. Open `macos/Runner.xcworkspace` (not `Runner.xcodeproj`).
+2. Select the blue **Runner** project in the Project Navigator (`Command+1`).
+3. Under **TARGETS**, select **Runner**, then open **Signing & Capabilities**.
+4. Enable **Automatically manage signing** and select your Apple Developer
+   team.
+
+During the first signed build, macOS may ask for the password of the `login`
+keychain. This is normally your Mac user-account password, not your Apple ID
+or cloud API password. If the prompt identifies Xcode or `codesign`, choose
+**Always Allow** to avoid approving the certificate key on every build.
+
+After installing CMake or changing package/signing configuration, create a
+clean build:
+
+```bash
+flutter clean
+flutter pub get
 flutter build macos
 ```
+
+*Note: You may encounter errors related to the target OS version during the build process. If this happens, you will need to open the `macos/Runner.xcworkspace` in Xcode and adjust the minimum deployment target.*
 
 ## Changing the Version Number Before Building
 
