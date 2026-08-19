@@ -76,6 +76,13 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
 
+  # flutter_soloud 4.1.7's macOS SwiftPM aggregate omits
+  # audiobuffer/pull_buffer_stream.cpp. The missing constructor is left as an
+  # unresolved symbol and crashes at address 0 when cloud playback creates a
+  # pull-buffer stream. Its CocoaPods/CMake source list includes the file.
+  config:
+    enable-swift-package-manager: false
+
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.
