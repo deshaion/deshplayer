@@ -14,6 +14,16 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   AudioSource? _currentAudioSource;
   PullBufferDiskStream? _pullBufferStream;
   bool _isDisposed = false;
+  bool _isCurrentFileDownloaded = false;
+  bool _resumeAfterInterruption = false;
+
+  Duration? _lastCompletionPosition;
+  int _unchangedCompletionTicks = 0;
+
+  static const _completionPollInterval = Duration(milliseconds: 500);
+  static const _completionStallTime = Duration(seconds: 3);
+  static const _completionPositionTolerance = Duration(milliseconds: 20);
+  static const _completionEndTolerance = Duration(seconds: 2);
 
   DeshAudioHandler() {
     _initAudioSession();
@@ -30,6 +40,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
             break;
           case AudioInterruptionType.pause:
           case AudioInterruptionType.unknown:
+            _resumeAfterInterruption = playbackState.value.playing;
             pause();
             break;
         }
@@ -38,15 +49,20 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
           case AudioInterruptionType.duck:
             break;
           case AudioInterruptionType.pause:
-            play();
+            if (_resumeAfterInterruption) play();
+            _resumeAfterInterruption = false;
             break;
           case AudioInterruptionType.unknown:
+            _resumeAfterInterruption = false;
             break;
         }
       }
     });
 
     session.becomingNoisyEventStream.listen((_) {
+      // A route change such as wireless headphones disconnecting must never
+      // resume onto the device speaker when the interruption subsequently ends.
+      _resumeAfterInterruption = false;
       pause();
     });
   }
@@ -105,6 +121,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
               );
               _setPlayingState(!startPaused);
               loadedFromCache = true;
+              _isCurrentFileDownloaded = true;
             }
           } catch (e) {
             _log.severe(
@@ -148,23 +165,84 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   Timer? _completionTimer;
   void _checkCompletion() {
     _completionTimer?.cancel();
-    _completionTimer = Timer.periodic(const Duration(milliseconds: 500), (
-      timer,
-    ) {
+    _lastCompletionPosition = null;
+    _unchangedCompletionTicks = 0;
+    _completionTimer = Timer.periodic(_completionPollInterval, (timer) {
       if (_currentSoundHandle != null) {
         if (!SoLoud.instance.getIsValidVoiceHandle(_currentSoundHandle!)) {
-          _setPlayingState(false);
-          playbackState.add(
-            playbackState.value.copyWith(
-              processingState: AudioProcessingState.completed,
-            ),
-          );
-          timer.cancel();
+          _markPlaybackCompleted(timer);
+          return;
         }
+
+        _checkForMissedCompletion(timer);
       } else {
         timer.cancel();
       }
     });
+  }
+
+  void _checkForMissedCompletion(Timer timer) {
+    // On some Android devices SoLoud occasionally keeps the voice handle valid
+    // after playback has reached EOF. Only compensate when playback is active,
+    // the complete file is cached, and the voice is stalled very near its end.
+    final state = playbackState.value;
+    if (!_isCurrentFileDownloaded ||
+        !state.playing ||
+        state.processingState != AudioProcessingState.ready) {
+      _lastCompletionPosition = null;
+      _unchangedCompletionTicks = 0;
+      return;
+    }
+
+    final handle = _currentSoundHandle!;
+    final position = SoLoud.instance.getPosition(handle);
+    final previousPosition = _lastCompletionPosition;
+    _lastCompletionPosition = position;
+
+    if (previousPosition == null ||
+        (position - previousPosition).abs() > _completionPositionTolerance) {
+      _unchangedCompletionTicks = 0;
+      return;
+    }
+
+    final source = _currentAudioSource;
+    var duration = source == null
+        ? Duration.zero
+        : SoLoud.instance.getLength(source);
+    if (duration <= Duration.zero) {
+      duration = mediaItem.value?.duration ?? Duration.zero;
+    }
+    final remaining = duration - position;
+    final isNearEnd =
+        duration > Duration.zero &&
+        remaining <= _completionEndTolerance &&
+        remaining >= -_completionEndTolerance;
+    if (!isNearEnd) {
+      _unchangedCompletionTicks = 0;
+      return;
+    }
+
+    _unchangedCompletionTicks++;
+    final requiredTicks =
+        _completionStallTime.inMilliseconds ~/
+        _completionPollInterval.inMilliseconds;
+    if (_unchangedCompletionTicks >= requiredTicks) {
+      _log.warning(
+        'Playback stalled near EOF at $position / $duration; '
+        'treating it as completed',
+      );
+      _markPlaybackCompleted(timer);
+    }
+  }
+
+  void _markPlaybackCompleted(Timer timer) {
+    _setPlayingState(false);
+    playbackState.add(
+      playbackState.value.copyWith(
+        processingState: AudioProcessingState.completed,
+      ),
+    );
+    timer.cancel();
   }
 
   Future<void> _playPullBufferStream(
@@ -209,6 +287,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         },
         onCacheCompleted: () {
           if (_isDisposed || _pullBufferStream != streamer) return;
+          _isCurrentFileDownloaded = true;
           onCacheCompleted?.call();
         },
         onBuffering: (isBuffering, handle, time) {
@@ -252,6 +331,9 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   Future<void> _stopCurrentPlayback() async {
     _isDisposed = true;
     _completionTimer?.cancel();
+    _isCurrentFileDownloaded = false;
+    _lastCompletionPosition = null;
+    _unchangedCompletionTicks = 0;
 
     await _pullBufferStream?.dispose();
     _pullBufferStream = null;
