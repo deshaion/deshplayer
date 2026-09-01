@@ -105,22 +105,37 @@ class _MobileLayoutState extends State<MobileLayout> {
                   child: const Icon(Icons.queue_music),
                 ),
                 const SizedBox(height: 12),
-                FloatingActionButton.extended(
-                  heroTag: 'mobile_active_playlist',
-                  tooltip: 'Set active playlist',
-                  onPressed: () {
-                    player.setActivePlaylist(selectedPlaylist);
-                  },
-                  backgroundColor:
-                      player.playingPlaylist?.id == selectedPlaylist.id
-                      ? Theme.of(context).colorScheme.primary
-                      : null,
-                  foregroundColor:
-                      player.playingPlaylist?.id == selectedPlaylist.id
-                      ? Theme.of(context).colorScheme.onPrimary
-                      : null,
-                  icon: const Icon(Icons.radio_button_checked),
-                  label: const Text('Active'),
+                Theme(
+                  data: Theme.of(context).copyWith(
+                    floatingActionButtonTheme: Theme.of(context)
+                        .floatingActionButtonTheme
+                        .copyWith(
+                          extendedSizeConstraints: const BoxConstraints(
+                            minHeight: 48,
+                            maxHeight: 48,
+                          ),
+                        ),
+                  ),
+                  child: FloatingActionButton.extended(
+                    heroTag: 'mobile_active_playlist',
+                    tooltip: 'Set active playlist',
+                    onPressed: () {
+                      player.setActivePlaylist(selectedPlaylist);
+                    },
+                    backgroundColor:
+                        player.playingPlaylist?.id == selectedPlaylist.id
+                        ? Theme.of(context).colorScheme.primary
+                        : null,
+                    foregroundColor:
+                        player.playingPlaylist?.id == selectedPlaylist.id
+                        ? Theme.of(context).colorScheme.onPrimary
+                        : null,
+                    extendedPadding: const EdgeInsets.symmetric(horizontal: 12),
+                    extendedIconLabelSpacing: 6,
+                    extendedTextStyle: const TextStyle(fontSize: 13),
+                    icon: const Icon(Icons.radio_button_checked, size: 18),
+                    label: const Text('Active'),
+                  ),
                 ),
               ],
             ),

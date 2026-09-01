@@ -102,7 +102,10 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Track? getTrack(String id) => _storageService.getTrack(id);
 
   Future<void> _init() async {
-    await _audioService.init();
+    await _audioService.init(
+      onSkipToPrevious: playPrevious,
+      onSkipToNext: () => playNext(reason: 'media control'),
+    );
     _settings = _storageService.getSettings();
     _audioService.setVolume(_settings.volume);
 
