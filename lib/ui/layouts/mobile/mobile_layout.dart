@@ -1,5 +1,6 @@
 import '../../utils/search_utils.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:provider/provider.dart';
 import '../../../models/playlist.dart';
 import '../../../services/player_provider.dart';
@@ -37,21 +38,25 @@ class _MobileLayoutState extends State<MobileLayout> {
   String _searchQuery = '';
   final Map<String, String> _searchCache = {};
   bool _isSearchExpanded = false;
+  bool _isControlPanelCollapsed = false;
   final TextEditingController _searchController = TextEditingController();
 
-  void _showPlaylistMenu(BuildContext context, Offset position, Playlist playlist) async {
+  void _showPlaylistMenu(
+    BuildContext context,
+    Offset position,
+    Playlist playlist,
+  ) async {
     final value = await showMenu<String>(
       context: context,
-      position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        position.dx,
+        position.dy,
+      ),
       items: [
-        const PopupMenuItem(
-          value: 'rename',
-          child: Text('Rename'),
-        ),
-        const PopupMenuItem(
-          value: 'delete',
-          child: Text('Delete'),
-        ),
+        const PopupMenuItem(value: 'rename', child: Text('Rename')),
+        const PopupMenuItem(value: 'delete', child: Text('Delete')),
       ],
     );
 
@@ -83,13 +88,51 @@ class _MobileLayoutState extends State<MobileLayout> {
     final currentTrack = player.currentTrack;
 
     return Scaffold(
+      floatingActionButton: selectedPlaylist == null
+          ? null
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'mobile_queue',
+                  tooltip: 'Queue',
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const QueuePage()),
+                    );
+                  },
+                  child: const Icon(Icons.queue_music),
+                ),
+                const SizedBox(height: 12),
+                FloatingActionButton.extended(
+                  heroTag: 'mobile_active_playlist',
+                  tooltip: 'Set active playlist',
+                  onPressed: () {
+                    player.setActivePlaylist(selectedPlaylist);
+                  },
+                  backgroundColor:
+                      player.playingPlaylist?.id == selectedPlaylist.id
+                      ? Theme.of(context).colorScheme.primary
+                      : null,
+                  foregroundColor:
+                      player.playingPlaylist?.id == selectedPlaylist.id
+                      ? Theme.of(context).colorScheme.onPrimary
+                      : null,
+                  icon: const Icon(Icons.radio_button_checked),
+                  label: const Text('Active'),
+                ),
+              ],
+            ),
       drawer: Drawer(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             DrawerHeader(
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest.withAlpha(76),
+                color: Theme.of(
+                  context,
+                ).colorScheme.surfaceContainerHighest.withAlpha(76),
               ),
               child: const Text(
                 'DeshPlayer',
@@ -104,28 +147,45 @@ class _MobileLayoutState extends State<MobileLayout> {
             ListTile(
               leading: const Icon(Icons.bar_chart),
               title: const Text('Stats'),
-              onTap: () { Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StatsPage())); },
+              onTap: () {
+                Navigator.of(
+                  context,
+                ).push(MaterialPageRoute(builder: (_) => const StatsPage()));
+              },
             ),
             ListTile(
               leading: const Icon(Icons.queue),
               title: const Text('Queue'),
-              onTap: () { Navigator.of(context).push(MaterialPageRoute(builder: (_) => const QueuePage())); },
+              onTap: () {
+                Navigator.of(
+                  context,
+                ).push(MaterialPageRoute(builder: (_) => const QueuePage()));
+              },
             ),
             ListTile(
               leading: const Icon(Icons.settings),
               title: const Text('Settings'),
               onTap: () {
-                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsPage()));
+                Navigator.of(
+                  context,
+                ).push(MaterialPageRoute(builder: (_) => const SettingsPage()));
               },
             ),
             const SizedBox(height: 16),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16.0,
+                vertical: 8.0,
+              ),
               child: Row(
                 children: [
                   const Text(
                     'PLAYLISTS',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey,
+                    ),
                   ),
                   const Spacer(),
                   IconButton(
@@ -145,11 +205,13 @@ class _MobileLayoutState extends State<MobileLayout> {
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
                     onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (context) => const ManagePlaylistsPage(),
-                        ),
-                      ).then((_) => widget.onPlaylistsChanged());
+                      Navigator.of(context)
+                          .push(
+                            MaterialPageRoute(
+                              builder: (context) => const ManagePlaylistsPage(),
+                            ),
+                          )
+                          .then((_) => widget.onPlaylistsChanged());
                     },
                   ),
                 ],
@@ -162,23 +224,39 @@ class _MobileLayoutState extends State<MobileLayout> {
                 itemBuilder: (context, index) {
                   final playlist = widget.playlists[index];
                   final isSelected = playlist.id == selectedPlaylist?.id;
-                  final isPlayingPlaylist = playlist.id == player.playingPlaylist?.id;
+                  final isPlayingPlaylist =
+                      playlist.id == player.playingPlaylist?.id;
 
                   IconData playlistIcon = Icons.queue_music;
                   if (isPlayingPlaylist) {
-                    playlistIcon = player.isPlaying ? Icons.volume_up : Icons.pause;
+                    playlistIcon = player.isPlaying
+                        ? Icons.volume_up
+                        : Icons.pause;
                   }
                   return GestureDetector(
                     onLongPressStart: (details) {
-                      _showPlaylistMenu(context, details.globalPosition, playlist);
+                      _showPlaylistMenu(
+                        context,
+                        details.globalPosition,
+                        playlist,
+                      );
                     },
                     child: ListTile(
-                      leading: Icon(playlistIcon, color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey),
+                      leading: Icon(
+                        playlistIcon,
+                        color: isSelected
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.grey,
+                      ),
                       title: Text(
                         playlist.name,
                         style: TextStyle(
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          color: isSelected ? Theme.of(context).colorScheme.primary : null,
+                          fontWeight: isSelected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          color: isSelected
+                              ? Theme.of(context).colorScheme.primary
+                              : null,
                         ),
                       ),
                       onTap: () {
@@ -196,42 +274,40 @@ class _MobileLayoutState extends State<MobileLayout> {
       body: SafeArea(
         child: Column(
           children: [
-            // Custom App Bar with Hamburger menu in SafeArea to open Drawer
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Row(
-                children: [
-                  Builder(
-                    builder: (context) {
-                      return IconButton(
-                        icon: const Icon(Icons.menu),
-                        onPressed: () {
-                          Scaffold.of(context).openDrawer();
-                        },
-                      );
-                    }
-                  ),
-                  const Spacer(),
-                ],
-              ),
-            ),
             // Control Panel at the top
-            const MobileControlPanel(),
+            MobileControlPanel(compact: _isControlPanelCollapsed),
 
             // Resume Block
             if (selectedPlaylist != null &&
                 player.playingPlaylist?.id != selectedPlaylist.id &&
-                (selectedPlaylist.isBookMode || (player.playingPlaylist?.isBookMode ?? false)) &&
-                HiveStorageService().getPlaybackState(selectedPlaylist.id)?.currentTrackId != null)
+                (selectedPlaylist.isBookMode ||
+                    (player.playingPlaylist?.isBookMode ?? false)) &&
+                HiveStorageService()
+                        .getPlaybackState(selectedPlaylist.id)
+                        ?.currentTrackId !=
+                    null)
               Builder(
                 builder: (context) {
-                  final state = HiveStorageService().getPlaybackState(selectedPlaylist.id);
-                  final track = state?.currentTrackId != null ? player.getTrack(state!.currentTrackId!) : null;
-                  final trackName = track?.title ?? track?.cloudPath.split('/').last.split('.').first ?? 'Unknown Track';
+                  final state = HiveStorageService().getPlaybackState(
+                    selectedPlaylist.id,
+                  );
+                  final track = state?.currentTrackId != null
+                      ? player.getTrack(state!.currentTrackId!)
+                      : null;
+                  final trackName =
+                      track?.title ??
+                      track?.cloudPath.split('/').last.split('.').first ??
+                      'Unknown Track';
 
                   return Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: 16.0,
+                      vertical: 8.0,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16.0,
+                      vertical: 12.0,
+                    ),
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.primaryContainer,
                       borderRadius: BorderRadius.circular(8.0),
@@ -244,7 +320,9 @@ class _MobileLayoutState extends State<MobileLayout> {
                           child: Text(
                             'Resume from track "$trackName"',
                             style: TextStyle(
-                              color: Theme.of(context).colorScheme.onPrimaryContainer,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onPrimaryContainer,
                               fontWeight: FontWeight.bold,
                             ),
                             maxLines: 1,
@@ -265,6 +343,31 @@ class _MobileLayoutState extends State<MobileLayout> {
               ),
 
             // Playlist Name Header
+            if (selectedPlaylist == null)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16.0,
+                  vertical: 8.0,
+                ),
+                child: Row(
+                  children: [
+                    Builder(
+                      builder: (context) => IconButton(
+                        tooltip: 'Open navigation menu',
+                        icon: const Icon(Icons.menu),
+                        onPressed: () {
+                          Scaffold.of(context).openDrawer();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'No Playlist Selected',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ],
+                ),
+              ),
             if (selectedPlaylist != null)
               Padding(
                 padding: const EdgeInsets.all(16.0),
@@ -288,7 +391,9 @@ class _MobileLayoutState extends State<MobileLayout> {
                               textAlignVertical: TextAlignVertical.center,
                               decoration: InputDecoration(
                                 isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
                                 hintText: 'Search...',
                                 border: InputBorder.none,
                                 suffixIcon: _searchQuery.isNotEmpty
@@ -312,19 +417,28 @@ class _MobileLayoutState extends State<MobileLayout> {
                           ),
                         ]
                       : [
-                          const Icon(Icons.list),
-                          const SizedBox(width: 8),
+                          Builder(
+                            builder: (context) => IconButton(
+                              tooltip: 'Open navigation menu',
+                              icon: const Icon(Icons.menu),
+                              onPressed: () {
+                                Scaffold.of(context).openDrawer();
+                              },
+                            ),
+                          ),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   selectedPlaylist.name,
-                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                                  style: Theme.of(context).textTheme.titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.w600),
                                 ),
                                 Text(
                                   '${selectedPlaylist.trackIds.length} tracks',
-                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(color: Colors.grey),
                                 ),
                               ],
                             ),
@@ -337,37 +451,34 @@ class _MobileLayoutState extends State<MobileLayout> {
                               });
                             },
                           ),
-                          const SizedBox(width: 8),
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              player.setActivePlaylist(selectedPlaylist);
+                          PopupMenuButton<String>(
+                            tooltip: 'Playlist actions',
+                            icon: const Icon(Icons.more_vert),
+                            onSelected: (value) {
+                              if (value == 'import') {
+                                Navigator.of(context)
+                                    .push(
+                                      MaterialPageRoute(
+                                        builder: (context) => CloudImportPage(
+                                          playlist: selectedPlaylist,
+                                        ),
+                                      ),
+                                    )
+                                    .then((_) {
+                                      if (mounted) setState(() {});
+                                    });
+                              }
                             },
-                            icon: const Icon(Icons.radio_button_checked, size: 16),
-                            label: const Text('Active'),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
-                              backgroundColor: player.playingPlaylist?.id == selectedPlaylist.id
-                                  ? Theme.of(context).colorScheme.primary
-                                  : null,
-                              foregroundColor: player.playingPlaylist?.id == selectedPlaylist.id
-                                  ? Theme.of(context).colorScheme.onPrimary
-                                  : null,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => CloudImportPage(playlist: selectedPlaylist),
+                            itemBuilder: (context) => const [
+                              PopupMenuItem(
+                                value: 'import',
+                                child: ListTile(
+                                  leading: Icon(Icons.cloud_download),
+                                  title: Text('Import'),
+                                  contentPadding: EdgeInsets.zero,
                                 ),
-                              ).then((_) {
-                                 // Trigger rebuild to show new tracks
-                                 setState((){});
-                              });
-                            },
-                            icon: const Icon(Icons.cloud_download, size: 16),
-                            label: const Text('Import'),
+                              ),
+                            ],
                           ),
                         ],
                 ),
@@ -379,7 +490,8 @@ class _MobileLayoutState extends State<MobileLayout> {
                   ? const Center(child: Text('No Playlist Selected'))
                   : Builder(
                       builder: (context) {
-                        List<String> filteredTrackIds = selectedPlaylist.trackIds;
+                        List<String> filteredTrackIds =
+                            selectedPlaylist.trackIds;
 
                         if (_searchQuery.trim().length >= 2) {
                           final query = _searchQuery.trim();
@@ -392,15 +504,24 @@ class _MobileLayoutState extends State<MobileLayout> {
 
                             String searchString = _searchCache[trackId] ?? '';
                             if (searchString.isEmpty) {
-                              if (track.title != null && track.title!.isNotEmpty) {
-                                searchString = '${track.artist ?? ""} ${track.title}';
+                              if (track.title != null &&
+                                  track.title!.isNotEmpty) {
+                                searchString =
+                                    '${track.artist ?? ""} ${track.title}';
                               } else {
-                                searchString = track.cloudPath.split('/').last.split('.').first;
+                                searchString = track.cloudPath
+                                    .split('/')
+                                    .last
+                                    .split('.')
+                                    .first;
                               }
                               _searchCache[trackId] = searchString;
                             }
 
-                            final score = SearchUtils.calculateMatchScore(query, searchString);
+                            final score = SearchUtils.calculateMatchScore(
+                              query,
+                              searchString,
+                            );
                             if (score > 0) {
                               scoredTracks.add(MapEntry(trackId, score));
                             }
@@ -408,36 +529,64 @@ class _MobileLayoutState extends State<MobileLayout> {
 
                           // 2. Sort by score descending (stable sort is naturally achieved in dart for same scores,
                           // but to be perfectly safe, since original order is insertion order, dart's sort is stable)
-                          scoredTracks.sort((a, b) => b.value.compareTo(a.value));
+                          scoredTracks.sort(
+                            (a, b) => b.value.compareTo(a.value),
+                          );
 
                           // 3. Extract the track IDs
-                          filteredTrackIds = scoredTracks.map((e) => e.key).toList();
+                          filteredTrackIds = scoredTracks
+                              .map((e) => e.key)
+                              .toList();
                         }
 
-                        return ListView.builder(
-                          itemCount: filteredTrackIds.length,
-                          itemBuilder: (context, index) {
-                            final trackId = filteredTrackIds[index];
-                            final track = player.getTrack(trackId);
-                            if (track == null) return const SizedBox.shrink();
+                        return NotificationListener<UserScrollNotification>(
+                          onNotification: (notification) {
+                            final shouldCollapse =
+                                notification.direction ==
+                                ScrollDirection.reverse;
+                            final shouldExpand =
+                                notification.direction ==
+                                ScrollDirection.forward;
 
-                            final isSelected = track.id == currentTrack?.id;
-                            return TrackListTile(
-                              track: track,
-                              index: index,
-                              playlist: selectedPlaylist,
-                              isSelected: isSelected,
-                              onTap: () {
-                                player.playTrackDirectly(track);
-                              },
-                              onRemoveFromPlaylist: () {
-                                 setState(() {
-                                    selectedPlaylist.trackIds.remove(track.id);
-                                    HiveStorageService().savePlaylist(selectedPlaylist);
-                                 });
-                              },
-                            );
+                            if (shouldCollapse && !_isControlPanelCollapsed) {
+                              setState(() {
+                                _isControlPanelCollapsed = true;
+                              });
+                            } else if (shouldExpand &&
+                                _isControlPanelCollapsed) {
+                              setState(() {
+                                _isControlPanelCollapsed = false;
+                              });
+                            }
+                            return false;
                           },
+                          child: ListView.builder(
+                            itemCount: filteredTrackIds.length,
+                            itemBuilder: (context, index) {
+                              final trackId = filteredTrackIds[index];
+                              final track = player.getTrack(trackId);
+                              if (track == null) return const SizedBox.shrink();
+
+                              final isSelected = track.id == currentTrack?.id;
+                              return TrackListTile(
+                                track: track,
+                                index: index,
+                                playlist: selectedPlaylist,
+                                isSelected: isSelected,
+                                onTap: () {
+                                  player.playTrackDirectly(track);
+                                },
+                                onRemoveFromPlaylist: () {
+                                  setState(() {
+                                    selectedPlaylist.trackIds.remove(track.id);
+                                    HiveStorageService().savePlaylist(
+                                      selectedPlaylist,
+                                    );
+                                  });
+                                },
+                              );
+                            },
+                          ),
                         );
                       },
                     ),

@@ -296,6 +296,21 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  void reorderQueue(int oldIndex, int newIndex) {
+    if (oldIndex < 0 || oldIndex >= _queue.length) return;
+    if (newIndex < 0 || newIndex >= _queue.length || oldIndex == newIndex) {
+      return;
+    }
+
+    final track = _queue.removeAt(oldIndex);
+    _queue.insert(newIndex, track);
+
+    for (int i = 0; i < min(2, _queue.length); i++) {
+      _audioService.preCacheTrack(_queue[i], protectedTracks: _protectedTracks);
+    }
+    notifyListeners();
+  }
+
   Future<void> resumePlaylist(Playlist playlist) async {
     final state = _storageService.getPlaybackState(playlist.id);
     if (state != null && state.currentTrackId != null) {

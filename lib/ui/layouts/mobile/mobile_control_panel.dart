@@ -5,7 +5,9 @@ import '../../../services/player_provider.dart';
 import '../../../services/hive_storage_service.dart';
 
 class MobileControlPanel extends StatefulWidget {
-  const MobileControlPanel({super.key});
+  final bool compact;
+
+  const MobileControlPanel({super.key, this.compact = false});
 
   @override
   State<MobileControlPanel> createState() => _MobileControlPanelState();
@@ -22,8 +24,13 @@ class _MobileControlPanelState extends State<MobileControlPanel> {
     final isShuffle = player.settings.shuffle;
     final repeatMode = player.settings.repeatMode;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.symmetric(
+        horizontal: 16.0,
+        vertical: widget.compact ? 8.0 : 24.0,
+      ),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         boxShadow: [
@@ -37,21 +44,54 @@ class _MobileControlPanelState extends State<MobileControlPanel> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Track Info
-          Text(
-            currentTrack?.title ?? 'No Track Selected',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            currentTrack?.artist ?? '',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 16),
+          if (widget.compact)
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    currentTrack?.title ?? 'No Track Selected',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (currentTrack?.artist?.isNotEmpty ?? false) ...[
+                  const SizedBox(width: 12),
+                  Flexible(
+                    child: Text(
+                      currentTrack!.artist!,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ],
+            )
+          else ...[
+            Text(
+              currentTrack?.title ?? 'No Track Selected',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              currentTrack?.artist ?? '',
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+          SizedBox(height: widget.compact ? 4 : 16),
           // Seek Slider
           ProgressBar(
             progress: player.position,
@@ -59,70 +99,101 @@ class _MobileControlPanelState extends State<MobileControlPanel> {
             onSeek: player.seek,
             barHeight: 4,
             thumbRadius: 6,
-            timeLabelTextStyle: const TextStyle(fontSize: 12, color: Colors.grey),
+            timeLabelTextStyle: const TextStyle(
+              fontSize: 12,
+              color: Colors.grey,
+            ),
           ),
           // Controls
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const SizedBox(width: 48), // Placeholder to balance the more_vert icon and perfectly center the controls
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.shuffle, color: isShuffle ? Theme.of(context).colorScheme.primary : Colors.grey),
-                    onPressed: player.toggleShuffle,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.skip_previous, size: 32),
-                    onPressed: player.playPrevious,
-                  ),
-                  FloatingActionButton(
-                    elevation: 0,
-                    onPressed: player.togglePlayPause,
-                    child: Icon(isPlaying ? Icons.pause : Icons.play_arrow, size: 32),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.skip_next, size: 32),
-                    onPressed: player.playNext,
-                  ),
-                  IconButton(
-                    icon: Icon(repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
-                                color: repeatMode > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
-                    onPressed: player.toggleRepeat,
-                  ),
-                ],
-              ),
-              IconButton(
-                key: _iconKey,
-                icon: const Icon(Icons.more_vert, color: Colors.grey),
-                onPressed: currentTrack != null
-                    ? () => _showTrackMenu(context, player, currentTrack, _iconKey)
-                    : null,
-              ),
-            ],
-          ),
+          if (!widget.compact)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const SizedBox(
+                  width: 48,
+                ), // Placeholder to balance the more_vert icon and perfectly center the controls
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: Icon(
+                        Icons.shuffle,
+                        color: isShuffle
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.grey,
+                      ),
+                      onPressed: player.toggleShuffle,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.skip_previous, size: 32),
+                      onPressed: player.playPrevious,
+                    ),
+                    FloatingActionButton(
+                      elevation: 0,
+                      onPressed: player.togglePlayPause,
+                      child: Icon(
+                        isPlaying ? Icons.pause : Icons.play_arrow,
+                        size: 32,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.skip_next, size: 32),
+                      onPressed: player.playNext,
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
+                        color: repeatMode > 0
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.grey,
+                      ),
+                      onPressed: player.toggleRepeat,
+                    ),
+                  ],
+                ),
+                IconButton(
+                  key: _iconKey,
+                  icon: const Icon(Icons.more_vert, color: Colors.grey),
+                  onPressed: currentTrack != null
+                      ? () => _showTrackMenu(
+                          context,
+                          player,
+                          currentTrack,
+                          _iconKey,
+                        )
+                      : null,
+                ),
+              ],
+            ),
         ],
       ),
     );
   }
 
-  void _showTrackMenu(BuildContext context, PlayerProvider player, dynamic currentTrack, GlobalKey iconKey) async {
+  void _showTrackMenu(
+    BuildContext context,
+    PlayerProvider player,
+    dynamic currentTrack,
+    GlobalKey iconKey,
+  ) async {
     final storage = HiveStorageService();
 
-    final RenderBox? renderBox = iconKey.currentContext?.findRenderObject() as RenderBox?;
+    final RenderBox? renderBox =
+        iconKey.currentContext?.findRenderObject() as RenderBox?;
     final offset = renderBox?.localToGlobal(Offset.zero);
     final dx = offset?.dx ?? 1000;
     final dy = offset?.dy ?? 1000;
 
     final value = await showMenu<String>(
       context: context,
-      position: RelativeRect.fromLTRB(dx, dy - 50, dx + 50, dy), // Adjust to show above icon
+      position: RelativeRect.fromLTRB(
+        dx,
+        dy - 50,
+        dx + 50,
+        dy,
+      ), // Adjust to show above icon
       items: [
-        const PopupMenuItem(
-          value: 'playlist',
-          child: Text('Send to Playlist'),
-        ),
+        const PopupMenuItem(value: 'playlist', child: Text('Send to Playlist')),
       ],
     );
 
@@ -133,7 +204,11 @@ class _MobileControlPanelState extends State<MobileControlPanel> {
     }
   }
 
-  void _showPlaylistDialog(BuildContext context, HiveStorageService storage, dynamic track) {
+  void _showPlaylistDialog(
+    BuildContext context,
+    HiveStorageService storage,
+    dynamic track,
+  ) {
     final playlists = storage.getPlaylists();
 
     showDialog(
@@ -155,10 +230,12 @@ class _MobileControlPanelState extends State<MobileControlPanel> {
                       p.trackIds.add(track.id);
                       storage.savePlaylist(p);
                       ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Added to ${p.name}')));
+                        SnackBar(content: Text('Added to ${p.name}')),
+                      );
                     } else {
                       ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Already in ${p.name}')));
+                        SnackBar(content: Text('Already in ${p.name}')),
+                      );
                     }
                     Navigator.of(context).pop();
                   },
@@ -168,8 +245,9 @@ class _MobileControlPanelState extends State<MobileControlPanel> {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Cancel'))
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
           ],
         );
       },
