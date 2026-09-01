@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../models/track.dart';
 import '../../../services/player_provider.dart';
 
 class QueuePage extends StatefulWidget {
@@ -11,6 +12,48 @@ class QueuePage extends StatefulWidget {
 
 class _QueuePageState extends State<QueuePage> {
   bool _showHistory = false;
+
+  Future<void> _showHistoryTrackActions(
+    BuildContext context,
+    PlayerProvider player,
+    Track track,
+  ) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.play_arrow),
+              title: const Text('Play'),
+              onTap: () => Navigator.of(context).pop('play'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.skip_next),
+              title: const Text('Play next'),
+              onTap: () => Navigator.of(context).pop('next'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.queue_music),
+              title: const Text('Add to end of queue'),
+              onTap: () => Navigator.of(context).pop('end'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    switch (action) {
+      case 'play':
+        await player.playTrackDirectly(track);
+      case 'next':
+        player.playNextInQueue(track);
+      case 'end':
+        player.addToQueue(track);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -55,6 +98,9 @@ class _QueuePageState extends State<QueuePage> {
                         ),
                         title: Text(track.title ?? 'Unknown'),
                         subtitle: Text(track.artist ?? 'Unknown Artist'),
+                        onTap: () {
+                          _showHistoryTrackActions(context, player, track);
+                        },
                       );
                     },
                   )
