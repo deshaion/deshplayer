@@ -219,7 +219,9 @@ class _MobileLayoutState extends State<MobileLayout> {
             ),
             Expanded(
               child: ListView.builder(
-                padding: EdgeInsets.zero,
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewPaddingOf(context).bottom + 24.0,
+                ),
                 itemCount: widget.playlists.length,
                 itemBuilder: (context, index) {
                   final playlist = widget.playlists[index];

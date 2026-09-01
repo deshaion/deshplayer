@@ -92,6 +92,12 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Duration get position => _position;
   Duration get duration => _duration;
   List<Track> get queue => _queue;
+  List<Track> get playbackHistory => _storageService
+      .getHistory()
+      .reversed
+      .map(_storageService.getTrack)
+      .whereType<Track>()
+      .toList(growable: false);
 
   Track? getTrack(String id) => _storageService.getTrack(id);
 
