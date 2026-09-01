@@ -51,6 +51,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Stream<String> get errorStream => _errorController.stream;
   int _consecutiveFailures = 0;
   static const int _maxConsecutiveFailures = 20;
+  bool _isAdvancingToNextTrack = false;
 
   bool _isBackground = false;
 
@@ -153,7 +154,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
 
       if (state.processingState == AudioProcessingState.completed) {
-        playNext();
+        unawaited(playNext(reason: 'playback completed'));
       }
 
       if (state.processingState == AudioProcessingState.error) {
@@ -433,38 +434,62 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> playNext() async {
-    if (_currentTrack != null) {
-      // Repeat One (2) - just replay the current track
-      if (_settings.repeatMode == 2) {
-        await _audioService.seek(Duration.zero);
-        await _audioService.playTrack(
-          _currentTrack!,
-          protectedTracks: _protectedTracks,
-        );
-        return;
-      }
-      _history.add(_currentTrack!);
+  Future<void> playNext({String reason = 'user request'}) async {
+    if (_isAdvancingToNextTrack) {
+      _log.warning(
+        'Ignoring overlapping playNext: reason=$reason, '
+        'current=${_currentTrack?.id}',
+      );
+      return;
     }
 
-    if (_queue.isNotEmpty) {
-      final nextTrack = _queue.removeAt(0);
-      if (_currentTrack?.id != nextTrack.id) {
-        _resetStatsForNewTrack();
+    _isAdvancingToNextTrack = true;
+    final previousTrackId = _currentTrack?.id;
+    try {
+      if (_currentTrack != null) {
+        // Repeat One (2) - just replay the current track
+        if (_settings.repeatMode == 2) {
+          await _audioService.seek(Duration.zero);
+          await _audioService.playTrack(
+            _currentTrack!,
+            protectedTracks: _protectedTracks,
+          );
+          return;
+        }
+        _history.add(_currentTrack!);
       }
-      _currentTrack = nextTrack;
-      _fillQueue();
-      notifyListeners();
-      try {
-        await _audioService.playTrack(
-          nextTrack,
-          protectedTracks: _protectedTracks,
+
+      if (_queue.isNotEmpty) {
+        final nextTrack = _queue.removeAt(0);
+        if (_currentTrack?.id != nextTrack.id) {
+          _resetStatsForNewTrack();
+        }
+        _currentTrack = nextTrack;
+        _fillQueue();
+        notifyListeners();
+        try {
+          await _audioService.playTrack(
+            nextTrack,
+            protectedTracks: _protectedTracks,
+          );
+        } catch (e, stackTrace) {
+          _log.severe(
+            'Next track handoff failed: from=$previousTrackId, '
+            'to=${nextTrack.id}',
+            e,
+            stackTrace,
+          );
+          _handlePlaybackError(e);
+        }
+      } else {
+        _log.warning(
+          'playNext found an empty queue: current=$previousTrackId, '
+          'playlist=${_playingPlaylist?.id}, '
+          'playlistTracks=${_playingPlaylist?.trackIds.length ?? 0}',
         );
-      } catch (e) {
-        _handlePlaybackError(e);
       }
-    } else {
-      // reached end, could stop or loop
+    } finally {
+      _isAdvancingToNextTrack = false;
     }
   }
 

@@ -19,11 +19,15 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
 
   Duration? _lastCompletionPosition;
   int _unchangedCompletionTicks = 0;
+  String? _currentTrackId;
+  bool _reportedCurrentStall = false;
 
   static const _completionPollInterval = Duration(milliseconds: 500);
   static const _completionStallTime = Duration(seconds: 3);
   static const _completionPositionTolerance = Duration(milliseconds: 20);
-  static const _completionEndTolerance = Duration(seconds: 2);
+  static const _completionOverrunGrace = Duration(seconds: 1);
+  static const _minimumCompletionEndTolerance = Duration(seconds: 2);
+  static const _maximumCompletionEndTolerance = Duration(seconds: 10);
 
   DeshAudioHandler() {
     _initAudioSession();
@@ -78,6 +82,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     await _stopCurrentPlayback();
 
     _isDisposed = false;
+    _currentTrackId = track.id;
     playbackState.add(
       playbackState.value.copyWith(
         processingState: AudioProcessingState.loading,
@@ -102,7 +107,8 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
 
       // 1. Try playing from local cache if valid
       if (await finalFile.exists()) {
-        if (await finalFile.length() == 0) {
+        final fileLength = await finalFile.length();
+        if (fileLength == 0) {
           _log.warning(
             'Cache file is empty (0 bytes). Deleting: ${finalFile.path}',
           );
@@ -167,15 +173,29 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     _completionTimer?.cancel();
     _lastCompletionPosition = null;
     _unchangedCompletionTicks = 0;
+    _reportedCurrentStall = false;
     _completionTimer = Timer.periodic(_completionPollInterval, (timer) {
-      if (_currentSoundHandle != null) {
-        if (!SoLoud.instance.getIsValidVoiceHandle(_currentSoundHandle!)) {
-          _markPlaybackCompleted(timer);
-          return;
-        }
+      try {
+        if (_currentSoundHandle != null) {
+          if (!SoLoud.instance.getIsValidVoiceHandle(_currentSoundHandle!)) {
+            _markPlaybackCompleted(timer);
+            return;
+          }
 
-        _checkForMissedCompletion(timer);
-      } else {
+          _checkForMissedCompletion(timer);
+        } else {
+          _log.warning(
+            'Completion monitor stopped without a voice handle: '
+            'track=$_currentTrackId',
+          );
+          timer.cancel();
+        }
+      } catch (error, stackTrace) {
+        _log.severe(
+          'Completion monitor failed: track=$_currentTrackId',
+          error,
+          stackTrace,
+        );
         timer.cancel();
       }
     });
@@ -186,11 +206,13 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     // after playback has reached EOF. Only compensate when playback is active,
     // the complete file is cached, and the voice is stalled very near its end.
     final state = playbackState.value;
-    if (!_isCurrentFileDownloaded ||
-        !state.playing ||
-        state.processingState != AudioProcessingState.ready) {
+    final canMonitorState =
+        state.processingState == AudioProcessingState.ready ||
+        state.processingState == AudioProcessingState.buffering;
+    if (!_isCurrentFileDownloaded || !state.playing || !canMonitorState) {
       _lastCompletionPosition = null;
       _unchangedCompletionTicks = 0;
+      _reportedCurrentStall = false;
       return;
     }
 
@@ -199,12 +221,6 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     final previousPosition = _lastCompletionPosition;
     _lastCompletionPosition = position;
 
-    if (previousPosition == null ||
-        (position - previousPosition).abs() > _completionPositionTolerance) {
-      _unchangedCompletionTicks = 0;
-      return;
-    }
-
     final source = _currentAudioSource;
     var duration = source == null
         ? Duration.zero
@@ -212,24 +228,70 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     if (duration <= Duration.zero) {
       duration = mediaItem.value?.duration ?? Duration.zero;
     }
-    final remaining = duration - position;
-    final isNearEnd =
-        duration > Duration.zero &&
-        remaining <= _completionEndTolerance &&
-        remaining >= -_completionEndTolerance;
-    if (!isNearEnd) {
-      _unchangedCompletionTicks = 0;
+
+    // Affected Android devices may keep both the voice handle and SoLoud's
+    // playback clock alive after decoded audio has ended. In that case the UI
+    // is clamped at the end, but a stall-based watchdog never fires because
+    // getPosition() continues to increase.
+    if (duration > Duration.zero &&
+        position >= duration + _completionOverrunGrace) {
+      _log.warning(
+        'SoLoud position passed decoded EOF; forcing completion: '
+        'track=$_currentTrackId, position=$position, duration=$duration, '
+        'overrun=${position - duration}, state=${state.processingState}, '
+        'handle=$handle',
+      );
+      _markPlaybackCompleted(timer);
       return;
     }
 
+    if (previousPosition == null ||
+        (position - previousPosition).abs() > _completionPositionTolerance) {
+      _unchangedCompletionTicks = 0;
+      _reportedCurrentStall = false;
+      return;
+    }
+
+    final remaining = duration - position;
+    final proportionalTolerance = Duration(
+      milliseconds: duration.inMilliseconds ~/ 100,
+    );
+    final endTolerance = proportionalTolerance < _minimumCompletionEndTolerance
+        ? _minimumCompletionEndTolerance
+        : proportionalTolerance > _maximumCompletionEndTolerance
+        ? _maximumCompletionEndTolerance
+        : proportionalTolerance;
+    final isNearEnd =
+        duration > Duration.zero &&
+        remaining <= endTolerance &&
+        remaining >= -endTolerance;
+
     _unchangedCompletionTicks++;
+    if (!_reportedCurrentStall &&
+        _unchangedCompletionTicks * _completionPollInterval.inMilliseconds >=
+            const Duration(seconds: 1).inMilliseconds) {
+      _reportedCurrentStall = true;
+      _log.warning(
+        'Playback position stopped changing: track=$_currentTrackId, '
+        'position=$position, duration=$duration, remaining=$remaining, '
+        'endTolerance=$endTolerance, nearEnd=$isNearEnd, '
+        'downloaded=$_isCurrentFileDownloaded, '
+        'state=${state.processingState}, playing=${state.playing}, '
+        'handle=$handle',
+      );
+    }
+    if (!isNearEnd) {
+      return;
+    }
+
     final requiredTicks =
         _completionStallTime.inMilliseconds ~/
         _completionPollInterval.inMilliseconds;
     if (_unchangedCompletionTicks >= requiredTicks) {
       _log.warning(
-        'Playback stalled near EOF at $position / $duration; '
-        'treating it as completed',
+        'Playback stalled near EOF; forcing completion: '
+        'track=$_currentTrackId, position=$position, duration=$duration, '
+        'remaining=$remaining, state=${state.processingState}, handle=$handle',
       );
       _markPlaybackCompleted(timer);
     }
@@ -334,6 +396,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     _isCurrentFileDownloaded = false;
     _lastCompletionPosition = null;
     _unchangedCompletionTicks = 0;
+    _reportedCurrentStall = false;
 
     await _pullBufferStream?.dispose();
     _pullBufferStream = null;
@@ -349,6 +412,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       } catch (_) {}
       _currentAudioSource = null;
     }
+    _currentTrackId = null;
   }
 
   @override
