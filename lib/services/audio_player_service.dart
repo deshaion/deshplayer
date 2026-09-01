@@ -105,14 +105,6 @@ class AudioPlayerService {
             : null,
       );
 
-      final state = audioHandler.playbackState.value;
-      _log.info(
-        'Audio handler returned from playTrack: track=${track.id}, '
-        'wasCached=$wasCached, path=$localPath, '
-        'processing=${state.processingState}, playing=${state.playing}, '
-        'position=${state.updatePosition}, media=${audioHandler.mediaItem.value?.id}',
-      );
-
       // Update metadata and tracking
       track.lastAccessed = DateTime.now();
       await storageService.saveTrack(track);

@@ -145,11 +145,6 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     _audioService.audioHandler.playbackState.listen((state) {
-      _log.info(
-        'Playback state: track=${_currentTrack?.id}, '
-        'processing=${state.processingState}, playing=${state.playing}, '
-        'position=${state.updatePosition}, error=${state.errorMessage}',
-      );
       _isPlaying = state.playing;
       notifyListeners();
 
@@ -159,10 +154,6 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
 
       if (state.processingState == AudioProcessingState.completed) {
-        _log.info(
-          'Completed state received; requesting next track: '
-          'current=${_currentTrack?.id}, queue=${_queue.map((t) => t.id).toList()}',
-        );
         unawaited(playNext(reason: 'playback completed'));
       }
 
@@ -454,15 +445,10 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     _isAdvancingToNextTrack = true;
     final previousTrackId = _currentTrack?.id;
-    _log.info(
-      'playNext started: reason=$reason, current=$previousTrackId, '
-      'repeatMode=${_settings.repeatMode}, queueLength=${_queue.length}',
-    );
     try {
       if (_currentTrack != null) {
         // Repeat One (2) - just replay the current track
         if (_settings.repeatMode == 2) {
-          _log.info('Repeating current track: id=${_currentTrack!.id}');
           await _audioService.seek(Duration.zero);
           await _audioService.playTrack(
             _currentTrack!,
@@ -475,11 +461,6 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       if (_queue.isNotEmpty) {
         final nextTrack = _queue.removeAt(0);
-        _log.info(
-          'Advancing track: from=$previousTrackId, to=${nextTrack.id}, '
-          'cachePath=${nextTrack.localCachePath}, '
-          'remainingQueue=${_queue.length}',
-        );
         if (_currentTrack?.id != nextTrack.id) {
           _resetStatsForNewTrack();
         }
@@ -490,10 +471,6 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
           await _audioService.playTrack(
             nextTrack,
             protectedTracks: _protectedTracks,
-          );
-          _log.info(
-            'Next track handoff completed: from=$previousTrackId, '
-            'to=${nextTrack.id}',
           );
         } catch (e, stackTrace) {
           _log.severe(
