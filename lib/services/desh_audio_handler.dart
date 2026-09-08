@@ -9,6 +9,8 @@ import 'pull_buffer_disk_stream.dart';
 
 class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   final _log = Logger('DeshAudioHandler');
+  final Future<void> Function()? onSkipToPrevious;
+  final Future<void> Function()? onSkipToNext;
 
   SoundHandle? _currentSoundHandle;
   AudioSource? _currentAudioSource;
@@ -29,7 +31,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   static const _minimumCompletionEndTolerance = Duration(seconds: 2);
   static const _maximumCompletionEndTolerance = Duration(seconds: 10);
 
-  DeshAudioHandler() {
+  DeshAudioHandler({this.onSkipToPrevious, this.onSkipToNext}) {
     _initAudioSession();
   }
 
@@ -431,6 +433,16 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       SoLoud.instance.setPause(_currentSoundHandle!, true);
       _setPlayingState(false);
     }
+  }
+
+  @override
+  Future<void> skipToPrevious() async {
+    await onSkipToPrevious?.call();
+  }
+
+  @override
+  Future<void> skipToNext() async {
+    await onSkipToNext?.call();
   }
 
   @override

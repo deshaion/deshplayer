@@ -92,11 +92,20 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Duration get position => _position;
   Duration get duration => _duration;
   List<Track> get queue => _queue;
+  List<Track> get playbackHistory => _storageService
+      .getHistory()
+      .reversed
+      .map(_storageService.getTrack)
+      .whereType<Track>()
+      .toList(growable: false);
 
   Track? getTrack(String id) => _storageService.getTrack(id);
 
   Future<void> _init() async {
-    await _audioService.init();
+    await _audioService.init(
+      onSkipToPrevious: playPrevious,
+      onSkipToNext: () => playNext(reason: 'media control'),
+    );
     _settings = _storageService.getSettings();
     _audioService.setVolume(_settings.volume);
 
@@ -293,6 +302,21 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   void removeFromQueue(Track track) {
     _queue.remove(track);
     _fillQueue();
+    notifyListeners();
+  }
+
+  void reorderQueue(int oldIndex, int newIndex) {
+    if (oldIndex < 0 || oldIndex >= _queue.length) return;
+    if (newIndex < 0 || newIndex >= _queue.length || oldIndex == newIndex) {
+      return;
+    }
+
+    final track = _queue.removeAt(oldIndex);
+    _queue.insert(newIndex, track);
+
+    for (int i = 0; i < min(2, _queue.length); i++) {
+      _audioService.preCacheTrack(_queue[i], protectedTracks: _protectedTracks);
+    }
     notifyListeners();
   }
 
