@@ -30,4 +30,41 @@ void main() {
     expect(first.position.y, second.position.y);
     expect(first.position.z, distance);
   });
+
+  test('junction branches share a throat and then visibly separate', () {
+    const path = TunnelPath(seed: 123);
+    final junction = path.junctionAt(0);
+    final selectedAtThroat = path.sample(junction.splitStart);
+    final otherAtThroat = path.sampleUnselectedBranch(
+      junction.splitStart,
+      junction,
+    );
+    final selectedAtSplit = path.sample(junction.fullSplit);
+    final otherAtSplit = path.sampleUnselectedBranch(
+      junction.fullSplit,
+      junction,
+    );
+
+    expect(
+      (selectedAtThroat.position - otherAtThroat.position).length,
+      lessThan(1e-8),
+    );
+    expect(
+      (selectedAtSplit.position - otherAtSplit.position).length,
+      closeTo(path.branchOffset * 2, 1e-6),
+    );
+  });
+
+  test('junction choice and orientation are deterministic', () {
+    const first = TunnelPath(seed: 808);
+    const second = TunnelPath(seed: 808);
+
+    for (var index = 0; index < 5; index++) {
+      final a = first.junctionAt(index);
+      final b = second.junctionAt(index);
+      expect(a.selectedSign, b.selectedSign);
+      expect(a.direction.x, b.direction.x);
+      expect(a.direction.y, b.direction.y);
+    }
+  });
 }

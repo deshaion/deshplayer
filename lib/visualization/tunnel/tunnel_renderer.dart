@@ -20,9 +20,10 @@ class TunnelRenderer {
     scene.fog
       ..enabled = true
       ..mode = FogMode.exponentialSquared
-      ..color = vm.Vector3(0.002, 0.003, 0.012)
-      ..start = 12
-      ..density = 0.045;
+      ..color = vm.Vector3(0.0015, 0.0025, 0.009)
+      ..start = 10
+      ..density = 0.04
+      ..maxOpacity = 0.995;
     scene.postProcess.bloom
       ..enabled = true
       ..threshold = 0.65
@@ -33,6 +34,19 @@ class TunnelRenderer {
       ..intensity = 0.55
       ..radius = 0.82
       ..smoothness = 0.55;
+    scene.postProcess.chromaticAberration
+      ..enabled = true
+      ..intensity = 0.075;
+    scene.postProcess.filmGrain
+      ..enabled = true
+      ..intensity = 0.065;
+    scene.postProcess.colorGrading
+      ..enabled = true
+      ..brightness = 0.92
+      ..contrast = 1.12
+      ..saturation = 1.16
+      ..lift = vm.Vector3(0, 0.002, 0.008)
+      ..gain = vm.Vector3(1.03, 1.04, 1.09);
     scene.exposure = 1.15;
 
     _material = UnlitMaterial()
@@ -51,6 +65,21 @@ class TunnelRenderer {
       _chunks.add(chunk);
       scene.add(node);
     }
+
+    final firstJunction = generator.path.junctionAt(0);
+    final branchRings =
+        ((firstJunction.branchEnd - firstJunction.splitStart) /
+                generator.ringSpacing)
+            .round() +
+        1;
+    final branchData = generator.createSegmentData(branchRings);
+    generator.fillUnselectedBranch(branchData, firstJunction);
+    final branchGeometry = generator.createGeometry(branchData);
+    _branchChunk = _TunnelChunk(
+      data: branchData,
+      geometry: branchGeometry,
+      node: Node(mesh: Mesh(branchGeometry, _material)),
+    );
   }
 
   final TunnelGenerator generator;
@@ -60,9 +89,14 @@ class TunnelRenderer {
   final Scene scene = Scene();
   final ListQueue<_TunnelChunk> _chunks = ListQueue<_TunnelChunk>();
   late final UnlitMaterial _material;
+  late final _TunnelChunk _branchChunk;
+  int _junctionIndex = 0;
+  bool _branchAttached = false;
   final List<_TravellingPulse> _pulses = <_TravellingPulse>[];
   double _elapsedSeconds = 0;
   double _deformAccumulator = 0;
+  double _speedImpulse = 0;
+  double _visualEnergy = 0;
 
   int get activeChunkCount => _chunks.length;
 
@@ -71,7 +105,11 @@ class TunnelRenderer {
     AudioFeatures audio, {
     required bool travel,
   }) {
-    if (travel) simulation.advance(deltaSeconds);
+    if (audio.beat) _speedImpulse = math.min(0.16, _speedImpulse + 0.075);
+    _speedImpulse *= math.exp(-deltaSeconds / 0.28);
+    if (travel) {
+      simulation.advance(deltaSeconds, speedMultiplier: 1 + _speedImpulse);
+    }
     _elapsedSeconds += deltaSeconds;
     _deformAccumulator += deltaSeconds;
     for (final pulse in _pulses) {
@@ -82,26 +120,36 @@ class TunnelRenderer {
       _pulses.add(_TravellingPulse(origin: simulation.distance + 4));
     }
     _streamAroundCamera();
+    _updateJunctionBranch();
 
     final brightness = 0.42 + audio.amplitude * 0.9 + audio.treble * 0.3;
+    _visualEnergy +=
+        (audio.amplitude - _visualEnergy) *
+        (1 - math.exp(-deltaSeconds / 0.12));
     _material.baseColorFactor.setValues(brightness, brightness, brightness, 1);
     scene.postProcess.bloom.intensity = 0.55 + audio.treble * 1.15;
+    scene.fog.density = 0.044 - _visualEnergy * 0.009;
 
     // Geometry/audio uploads are capped at 30 Hz. Camera travel remains at
     // display refresh rate and shader interpolation keeps the response fluid.
     if (_deformAccumulator < 1 / 30) return;
     _deformAccumulator = 0;
     for (final chunk in _chunks) {
-      _fillPulseEnergies(chunk.data);
-      generator.deformSegment(
-        chunk.data,
-        bass: audio.bass,
-        mids: audio.mids,
-        treble: audio.treble,
-        elapsedSeconds: _elapsedSeconds,
-      );
-      generator.updateGeometry(chunk.geometry, chunk.data);
+      _deformChunk(chunk, audio);
     }
+    if (_branchAttached) _deformChunk(_branchChunk, audio);
+  }
+
+  void _deformChunk(_TunnelChunk chunk, AudioFeatures audio) {
+    _fillPulseEnergies(chunk.data);
+    generator.deformSegment(
+      chunk.data,
+      bass: audio.bass,
+      mids: audio.mids,
+      treble: audio.treble,
+      elapsedSeconds: _elapsedSeconds,
+    );
+    generator.updateGeometry(chunk.geometry, chunk.data);
   }
 
   void _fillPulseEnergies(TunnelSegmentData data) {
@@ -137,6 +185,26 @@ class TunnelRenderer {
     }
   }
 
+  void _updateJunctionBranch() {
+    var junction = generator.path.junctionAt(_junctionIndex);
+    while (simulation.distance > junction.branchEnd + 18) {
+      if (_branchAttached) {
+        scene.remove(_branchChunk.node);
+        _branchAttached = false;
+      }
+      _junctionIndex++;
+      junction = generator.path.junctionAt(_junctionIndex);
+    }
+
+    final revealDistance = junction.splitStart - 70;
+    if (!_branchAttached && simulation.distance >= revealDistance) {
+      generator.fillUnselectedBranch(_branchChunk.data, junction);
+      generator.updateGeometry(_branchChunk.geometry, _branchChunk.data);
+      scene.add(_branchChunk.node);
+      _branchAttached = true;
+    }
+  }
+
   double _chunkEndDistance(_TunnelChunk chunk) =>
       (chunk.data.startRing + ringsPerChunk - 1) * generator.ringSpacing;
 
@@ -144,7 +212,8 @@ class TunnelRenderer {
     position: simulation.cameraPosition,
     target: simulation.cameraTarget,
     up: simulation.cameraUp,
-    fovRadiansY: 68 * vm.degrees2Radians,
+    fovRadiansY:
+        (67 + _visualEnergy * 1.8 + _speedImpulse * 5) * vm.degrees2Radians,
     fovNear: 0.08,
     fovFar: (chunkCount - 1) * (ringsPerChunk - 1) * generator.ringSpacing,
   );

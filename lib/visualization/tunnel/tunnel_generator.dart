@@ -63,34 +63,62 @@ class TunnelGenerator {
     this.verticesPerRing = 24,
     this.ringSpacing = 1,
     this.radius = 4.6,
-  }) : path = TunnelPath(seed: seed);
+  }) : path = TunnelPath(seed: seed),
+       _phase1 = _phaseFor(seed, 0x19),
+       _phase2 = _phaseFor(seed, 0x47),
+       _phase3 = _phaseFor(seed, 0x83),
+       _phase4 = _phaseFor(seed, 0xB5),
+       _phase5 = _phaseFor(seed, 0xE1);
 
   final int seed;
   final int verticesPerRing;
   final double ringSpacing;
   final double radius;
   final TunnelPath path;
+  final double _phase1;
+  final double _phase2;
+  final double _phase3;
+  final double _phase4;
+  final double _phase5;
 
   TunnelSegmentData createSegmentData(int ringCount) =>
       TunnelSegmentData(ringCount: ringCount, verticesPerRing: verticesPerRing);
 
   void fillSegment(TunnelSegmentData data, int startRing) {
+    _fillSegment(data, startRing, path.sample);
+  }
+
+  void fillUnselectedBranch(TunnelSegmentData data, TunnelJunction junction) {
+    final startRing = (junction.splitStart / ringSpacing).round();
+    _fillSegment(
+      data,
+      startRing,
+      (distance) => path.sampleUnselectedBranch(distance, junction),
+    );
+  }
+
+  void _fillSegment(
+    TunnelSegmentData data,
+    int startRing,
+    TunnelPathSample Function(double distance) samplePath,
+  ) {
     assert(data.verticesPerRing == verticesPerRing);
     data.startRing = startRing;
 
     for (var localRing = 0; localRing < data.ringCount; localRing++) {
       final globalRing = startRing + localRing;
       final distance = globalRing * ringSpacing;
-      final sample = path.sample(distance);
+      final sample = samplePath(distance);
       final ringNormal = _minimumTwistNormal(sample.tangent);
       final ringBinormal = sample.tangent.cross(ringNormal).normalized();
-      final ringAccent = globalRing % 8 == 0;
+      final ringAccent = globalRing % 9 == 0 || globalRing % 23 == 0;
 
       for (var side = 0; side < verticesPerRing; side++) {
         final angle = side * math.pi * 2 / verticesPerRing;
         final radial =
             ringNormal * math.cos(angle) + ringBinormal * math.sin(angle);
-        final position = sample.position + radial * radius;
+        final caveRadius = radius + _organicDisplacement(distance, angle);
+        final position = sample.position + radial * caveRadius;
         final vertex = localRing * verticesPerRing + side;
         final p = vertex * 3;
         final c = vertex * 4;
@@ -170,6 +198,26 @@ class TunnelGenerator {
   void updateGeometry(MeshGeometry geometry, TunnelSegmentData data) {
     geometry.updatePositions(data.positions);
     geometry.updateColors(data.colors);
+  }
+
+  double _organicDisplacement(double distance, double angle) {
+    // Periodic angular harmonics make the seam exact; low longitudinal
+    // frequencies keep neighboring rings coherent instead of producing noise.
+    final broad =
+        math.sin(angle * 2 + distance * 0.075 + _phase1) * 0.48 +
+        math.sin(angle * 3 - distance * 0.052 + _phase2) * 0.32;
+    final shelves = math.sin(angle + distance * 0.14 + _phase3) * 0.24;
+    final detail =
+        math.sin(angle * 7 + distance * 0.29 + _phase4) * 0.12 +
+        math.sin(angle * 11 - distance * 0.18 + _phase5) * 0.06;
+    return broad + shelves + detail;
+  }
+
+  static double _phaseFor(int seed, int salt) {
+    var hash = (seed ^ salt) & 0xFFFFFFFF;
+    hash = ((hash ^ (hash >> 16)) * 0x7feb352d) & 0xFFFFFFFF;
+    hash = (hash ^ (hash >> 15)) & 0xFFFFFFFF;
+    return hash / 0xFFFFFFFF * math.pi * 2;
   }
 
   /// Rotates world-up by the shortest rotation from +Z to [tangent]. It is a
