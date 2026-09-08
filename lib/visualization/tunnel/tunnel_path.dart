@@ -35,10 +35,10 @@ class TunnelJunction {
 class TunnelPath {
   const TunnelPath({
     required this.seed,
-    this.controlPointSpacing = 9,
-    this.firstJunctionDistance = 120,
+    this.controlPointSpacing = 16,
+    this.firstJunctionDistance = 60,
     this.junctionSpacing = 180,
-    this.branchOffset = 5.5,
+    this.branchOffset = 8.5,
   });
 
   final int seed;

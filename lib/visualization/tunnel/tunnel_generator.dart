@@ -29,6 +29,8 @@ class TunnelSegmentData {
   final Float32List pulsePerRing;
   final List<int> indices;
   int startRing = 0;
+  bool topologyDirty = true;
+  final Set<int> junctionRings = <int>{};
 
   static List<int> _makeIndices(int ringCount, int verticesPerRing) {
     final result = List<int>.filled(
@@ -60,15 +62,13 @@ class TunnelSegmentData {
 class TunnelGenerator {
   TunnelGenerator({
     this.seed = 0xD35A,
-    this.verticesPerRing = 24,
-    this.ringSpacing = 1,
+    this.verticesPerRing = 144,
+    this.ringSpacing = 0.5,
     this.radius = 4.6,
   }) : path = TunnelPath(seed: seed),
        _phase1 = _phaseFor(seed, 0x19),
        _phase2 = _phaseFor(seed, 0x47),
-       _phase3 = _phaseFor(seed, 0x83),
-       _phase4 = _phaseFor(seed, 0xB5),
-       _phase5 = _phaseFor(seed, 0xE1);
+       _phase3 = _phaseFor(seed, 0x83);
 
   final int seed;
   final int verticesPerRing;
@@ -78,14 +78,13 @@ class TunnelGenerator {
   final double _phase1;
   final double _phase2;
   final double _phase3;
-  final double _phase4;
-  final double _phase5;
 
   TunnelSegmentData createSegmentData(int ringCount) =>
       TunnelSegmentData(ringCount: ringCount, verticesPerRing: verticesPerRing);
 
   void fillSegment(TunnelSegmentData data, int startRing) {
     _fillSegment(data, startRing, path.sample);
+    _openJunctions(data);
   }
 
   void fillUnselectedBranch(TunnelSegmentData data, TunnelJunction junction) {
@@ -95,6 +94,7 @@ class TunnelGenerator {
       startRing,
       (distance) => path.sampleUnselectedBranch(distance, junction),
     );
+    _openJunctions(data, branch: junction);
   }
 
   void _fillSegment(
@@ -104,6 +104,12 @@ class TunnelGenerator {
   ) {
     assert(data.verticesPerRing == verticesPerRing);
     data.startRing = startRing;
+    data.junctionRings.clear();
+    data.topologyDirty = true;
+    data.indices.setAll(
+      0,
+      TunnelSegmentData._makeIndices(data.ringCount, verticesPerRing),
+    );
 
     for (var localRing = 0; localRing < data.ringCount; localRing++) {
       final globalRing = startRing + localRing;
@@ -111,10 +117,12 @@ class TunnelGenerator {
       final sample = samplePath(distance);
       final ringNormal = _minimumTwistNormal(sample.tangent);
       final ringBinormal = sample.tangent.cross(ringNormal).normalized();
-      final ringAccent = globalRing % 9 == 0 || globalRing % 23 == 0;
+      final ringAccent = globalRing % 16 == 0;
 
       for (var side = 0; side < verticesPerRing; side++) {
-        final angle = side * math.pi * 2 / verticesPerRing;
+        // Cluster vertices around six rails, giving the lights a narrow
+        // luminous core without painting broad gradients across the walls.
+        final angle = _angleForSide(side);
         final radial =
             ringNormal * math.cos(angle) + ringBinormal * math.sin(angle);
         final caveRadius = radius + _organicDisplacement(distance, angle);
@@ -135,12 +143,21 @@ class TunnelGenerator {
         data.normals[p + 1] = -radial.y;
         data.normals[p + 2] = -radial.z;
 
-        final sideAccent = side % 6 == 0;
-        final glow = ringAccent || sideAccent ? 2.8 : 0.12;
-        final magenta = (side ~/ 3).isOdd;
-        data.colors[c] = magenta ? glow : glow * 0.05;
-        data.colors[c + 1] = magenta ? glow * 0.08 : glow * 0.75;
-        data.colors[c + 2] = glow;
+        final railDistance = (angle / (math.pi / 3)) % 1;
+        final rail = math.min(railDistance, 1 - railDistance);
+        final core = math.exp(-math.pow(rail / 0.012, 2));
+        final halo = math.exp(-math.pow(rail / 0.075, 2));
+        // Violet above, glacial cyan below: one continuous palette instead
+        // of alternating hot-colored wedges.
+        final violet = (0.5 + 0.5 * math.cos(angle)).clamp(0.0, 1.0);
+        final red = 0.12 + violet * 0.42;
+        final green = 0.82 - violet * 0.46;
+        final rib = ringAccent ? 0.32 : 0.0;
+        final light = core * 1.65 + halo * 0.09 + rib;
+        final wall = 0.018 + 0.018 * math.pow(math.sin(angle), 2);
+        data.colors[c] = wall * 0.38 + light * red + core * 0.18;
+        data.colors[c + 1] = wall * 0.65 + light * green + core * 0.18;
+        data.colors[c + 2] = wall + light + core * 0.18;
         data.colors[c + 3] = 1;
         data.baseColors[c] = data.colors[c];
         data.baseColors[c + 1] = data.colors[c + 1];
@@ -162,10 +179,10 @@ class TunnelGenerator {
       final distance = globalRing * ringSpacing;
       final midWave = math.sin(distance * 0.62 + elapsedSeconds * 2.2);
       final pulse = data.pulsePerRing[localRing];
-      final displacement =
-          radius * (bass * 0.13 + mids * 0.035 * midWave) +
-          radius * pulse * 0.17;
-      final brightness = 1 + treble * 0.7 + pulse * 2.2;
+      final displacement = data.junctionRings.contains(localRing)
+          ? 0.0
+          : radius * (bass * 0.055 + mids * 0.018 * midWave + pulse * 0.065);
+      final brightness = 1 + treble * 0.25 + pulse * 0.85;
 
       for (var side = 0; side < verticesPerRing; side++) {
         final vertex = localRing * verticesPerRing + side;
@@ -196,21 +213,91 @@ class TunnelGenerator {
       );
 
   void updateGeometry(MeshGeometry geometry, TunnelSegmentData data) {
+    if (data.topologyDirty) {
+      geometry.rebuild(
+        positions: data.positions,
+        normals: data.normals,
+        colors: data.colors,
+        indices: data.indices,
+      );
+      data.topologyDirty = false;
+      return;
+    }
     geometry.updatePositions(data.positions);
     geometry.updateColors(data.colors);
+  }
+
+  /// Remove the walls inside the other passage, preserving the outer shell.
+  /// Degenerate triangles keep the pooled index buffer at its fixed capacity.
+  void _openJunctions(TunnelSegmentData data, {TunnelJunction? branch}) {
+    for (var ring = 0; ring < data.ringCount - 1; ring++) {
+      final distance = (data.startRing + ring + 0.5) * ringSpacing;
+      final index =
+          ((distance - path.firstJunctionDistance + 24) / path.junctionSpacing)
+              .floor();
+      if (index < 0) continue;
+      final junction = branch ?? path.junctionAt(index);
+      if (distance < junction.splitStart || distance > junction.branchEnd) {
+        continue;
+      }
+      final other = branch == null
+          ? path.sampleUnselectedBranch(distance, junction)
+          : path.sample(distance);
+      data.junctionRings.addAll([ring, ring + 1]);
+      for (var side = 0; side < verticesPerRing; side++) {
+        final start = (ring * verticesPerRing + side) * 6;
+        for (var triangle = start; triangle < start + 6; triangle += 3) {
+          final center = vm.Vector3.zero();
+          for (var corner = 0; corner < 3; corner++) {
+            final p = data.indices[triangle + corner] * 3;
+            center.add(
+              vm.Vector3(
+                data.positions[p],
+                data.positions[p + 1],
+                data.positions[p + 2],
+              ),
+            );
+          }
+          center.scale(1 / 3);
+          // Refine longitudinal position because curved rings are not XY planes.
+          final otherAtVertex = branch == null
+              ? path.sampleUnselectedBranch(center.z, junction)
+              : path.sample(center.z);
+          final offset = center - otherAtVertex.position;
+          final normal = _minimumTwistNormal(otherAtVertex.tangent);
+          final binormal = otherAtVertex.tangent.cross(normal).normalized();
+          final angle = math.atan2(offset.dot(binormal), offset.dot(normal));
+          final wallRadius = radius + _organicDisplacement(center.z, angle);
+          final radial = offset - other.tangent * offset.dot(other.tangent);
+          if (radial.length < wallRadius - 0.08) {
+            data.indices[triangle + 1] = data.indices[triangle];
+            data.indices[triangle + 2] = data.indices[triangle];
+          }
+        }
+      }
+    }
   }
 
   double _organicDisplacement(double distance, double angle) {
     // Periodic angular harmonics make the seam exact; low longitudinal
     // frequencies keep neighboring rings coherent instead of producing noise.
     final broad =
-        math.sin(angle * 2 + distance * 0.075 + _phase1) * 0.48 +
-        math.sin(angle * 3 - distance * 0.052 + _phase2) * 0.32;
-    final shelves = math.sin(angle + distance * 0.14 + _phase3) * 0.24;
-    final detail =
-        math.sin(angle * 7 + distance * 0.29 + _phase4) * 0.12 +
-        math.sin(angle * 11 - distance * 0.18 + _phase5) * 0.06;
-    return broad + shelves + detail;
+        math.sin(angle * 2 + distance * 0.045 + _phase1) * 0.30 +
+        math.sin(angle * 3 - distance * 0.032 + _phase2) * 0.16;
+    final shelves = math.sin(angle + distance * 0.07 + _phase3) * 0.12;
+    return broad + shelves;
+  }
+
+  double _angleForSide(int side) {
+    if (verticesPerRing != 144) return side * math.pi * 2 / verticesPerRing;
+    final step = side % 24;
+    final fraction = switch (step) {
+      0 => 0.0,
+      1 => 0.012,
+      23 => 0.988,
+      _ => (step - 1) / 22,
+    };
+    return (side ~/ 24 + fraction) * math.pi / 3;
   }
 
   static double _phaseFor(int seed, int salt) {

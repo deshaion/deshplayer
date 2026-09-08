@@ -6,6 +6,7 @@ import 'package:vector_math/vector_math.dart' as vm;
 
 import '../audio/audio_analysis.dart';
 import 'tunnel_generator.dart';
+import 'tunnel_audio_response.dart';
 import 'tunnel_simulation.dart';
 
 /// Owns retained scene and GPU resources. No geometry is allocated per frame.
@@ -14,7 +15,7 @@ class TunnelRenderer {
     required this.generator,
     required this.simulation,
     this.chunkCount = 8,
-    this.ringsPerChunk = 17,
+    this.ringsPerChunk = 33,
   }) : assert(chunkCount >= 3),
        assert(ringsPerChunk >= 2) {
     scene.fog
@@ -22,32 +23,28 @@ class TunnelRenderer {
       ..mode = FogMode.exponentialSquared
       ..color = vm.Vector3(0.0015, 0.0025, 0.009)
       ..start = 10
-      ..density = 0.04
+      ..density = 0.028
       ..maxOpacity = 0.995;
     scene.postProcess.bloom
       ..enabled = true
-      ..threshold = 0.65
-      ..intensity = 0.9
-      ..scatter = 0.72;
+      ..threshold = 0.85
+      ..intensity = 0.28
+      ..scatter = 0.5;
     scene.postProcess.vignette
       ..enabled = true
-      ..intensity = 0.55
-      ..radius = 0.82
+      ..intensity = 0.32
+      ..radius = 0.9
       ..smoothness = 0.55;
-    scene.postProcess.chromaticAberration
-      ..enabled = true
-      ..intensity = 0.075;
-    scene.postProcess.filmGrain
-      ..enabled = true
-      ..intensity = 0.065;
+    scene.postProcess.chromaticAberration.enabled = false;
+    scene.postProcess.filmGrain.enabled = false;
     scene.postProcess.colorGrading
       ..enabled = true
-      ..brightness = 0.92
-      ..contrast = 1.12
-      ..saturation = 1.16
+      ..brightness = 1.0
+      ..contrast = 1.06
+      ..saturation = 0.95
       ..lift = vm.Vector3(0, 0.002, 0.008)
       ..gain = vm.Vector3(1.03, 1.04, 1.09);
-    scene.exposure = 1.15;
+    scene.exposure = 1.0;
 
     _material = UnlitMaterial()
       ..doubleSided = true
@@ -97,6 +94,7 @@ class TunnelRenderer {
   double _deformAccumulator = 0;
   double _speedImpulse = 0;
   double _visualEnergy = 0;
+  final _response = TunnelAudioResponse();
 
   int get activeChunkCount => _chunks.length;
 
@@ -122,13 +120,15 @@ class TunnelRenderer {
     _streamAroundCamera();
     _updateJunctionBranch();
 
-    final brightness = 0.42 + audio.amplitude * 0.9 + audio.treble * 0.3;
-    _visualEnergy +=
-        (audio.amplitude - _visualEnergy) *
-        (1 - math.exp(-deltaSeconds / 0.12));
+    _response.advance(
+      deltaSeconds,
+      audio.amplitude * 0.45 + audio.bass * 0.35 + audio.mids * 0.2,
+    );
+    _visualEnergy = _response.energy;
+    final brightness = 0.82 + _visualEnergy * 0.18;
     _material.baseColorFactor.setValues(brightness, brightness, brightness, 1);
-    scene.postProcess.bloom.intensity = 0.55 + audio.treble * 1.15;
-    scene.fog.density = 0.044 - _visualEnergy * 0.009;
+    scene.postProcess.bloom.intensity = 0.28 + _visualEnergy * 0.18;
+    scene.fog.density = 0.028;
 
     // Geometry/audio uploads are capped at 30 Hz. Camera travel remains at
     // display refresh rate and shader interpolation keeps the response fluid.
@@ -144,9 +144,9 @@ class TunnelRenderer {
     _fillPulseEnergies(chunk.data);
     generator.deformSegment(
       chunk.data,
-      bass: audio.bass,
-      mids: audio.mids,
-      treble: audio.treble,
+      bass: audio.bass * _visualEnergy,
+      mids: audio.mids * _visualEnergy,
+      treble: audio.treble * _visualEnergy,
       elapsedSeconds: _elapsedSeconds,
     );
     generator.updateGeometry(chunk.geometry, chunk.data);
@@ -213,7 +213,7 @@ class TunnelRenderer {
     target: simulation.cameraTarget,
     up: simulation.cameraUp,
     fovRadiansY:
-        (67 + _visualEnergy * 1.8 + _speedImpulse * 5) * vm.degrees2Radians,
+        (64 + _visualEnergy * 0.8 + _speedImpulse * 2) * vm.degrees2Radians,
     fovNear: 0.08,
     fovFar: (chunkCount - 1) * (ringsPerChunk - 1) * generator.ringSpacing,
   );

@@ -17,6 +17,30 @@ void main() {
     expect(first.radialDirections, orderedEquals(second.radialDirections));
   });
 
+  test('fork opens internal walls and recycling restores closed tube', () {
+    final generator = TunnelGenerator(seed: 77);
+    final junction = generator.path.junctionAt(0);
+    final data = generator.createSegmentData(12);
+    final start = ((junction.splitStart + 8) / generator.ringSpacing).round();
+    generator.fillSegment(data, start);
+    int openFaces() {
+      var count = 0;
+      for (var i = 0; i < data.indices.length; i += 3) {
+        if (data.indices[i] == data.indices[i + 1]) count++;
+      }
+      return count;
+    }
+
+    expect(openFaces(), greaterThan(0));
+    expect(openFaces(), lessThan(data.indices.length ~/ 3));
+    expect(data.junctionRings, isNotEmpty);
+    generator.fillUnselectedBranch(data, junction);
+    expect(openFaces(), greaterThan(0));
+    generator.fillSegment(data, 0);
+    expect(openFaces(), 0);
+    expect(data.junctionRings, isEmpty);
+  });
+
   test('ring radii vary organically while remaining bounded', () {
     final generator = TunnelGenerator(seed: 77);
     final data = generator.createSegmentData(3);
