@@ -7,7 +7,9 @@ import '../../widgets/triangle_volume_slider.dart';
 import '../../widgets/music_visualizer.dart';
 
 class DesktopControlPanel extends StatefulWidget {
-  const DesktopControlPanel({super.key});
+  final VoidCallback? onVisualizerTap;
+
+  const DesktopControlPanel({super.key, this.onVisualizerTap});
 
   @override
   State<DesktopControlPanel> createState() => _DesktopControlPanelState();
@@ -46,11 +48,18 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Left: Visualizer
-          MusicVisualizer(
-            isPlaying: isPlaying,
-            width: 80,
-            height: 80,
-            barCount: 7,
+          Tooltip(
+            message: 'Open visualization',
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: widget.onVisualizerTap,
+              child: MusicVisualizer(
+                isPlaying: isPlaying,
+                width: 80,
+                height: 80,
+                barCount: 7,
+              ),
+            ),
           ),
           const SizedBox(width: 24),
           // Right Side: 2 Rows (Progress Bar top, Controls bottom)
@@ -208,11 +217,18 @@ class _DesktopControlPanelState extends State<DesktopControlPanel> {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Left: Visualizer (Narrower)
-          MusicVisualizer(
-            isPlaying: isPlaying,
-            width: 60,
-            height: 100, // Taller to match 3 rows roughly
-            barCount: 5,
+          Tooltip(
+            message: 'Open visualization',
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: widget.onVisualizerTap,
+              child: MusicVisualizer(
+                isPlaying: isPlaying,
+                width: 60,
+                height: 100, // Taller to match 3 rows roughly
+                barCount: 5,
+              ),
+            ),
           ),
           const SizedBox(width: 24),
           // Right Side: 3 Rows
