@@ -73,7 +73,8 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
 
   Future<void> playTrack(
     Track track, {
-    required String downloadUrl,
+    required String? downloadUrl,
+    required Future<String> Function() getDownloadUrl,
     required String localPath,
     bool startPaused = false,
     void Function()? onMetadataChanged,
@@ -142,9 +143,10 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
 
       // 2. Stream and cache if not loaded from cache
       if (!loadedFromCache && !_isDisposed) {
+        final resolvedDownloadUrl = downloadUrl ?? await getDownloadUrl();
         _log.info('Streaming and caching to: ${finalFile.path}');
         await _playPullBufferStream(
-          downloadUrl,
+          resolvedDownloadUrl,
           finalFile,
           startPaused,
           track,

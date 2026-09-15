@@ -74,7 +74,7 @@ class AudioPlayerService {
       if (wasCached) {
         _log.fine('Playing from local cache: ${track.localCachePath}');
         localPath = track.localCachePath!;
-        downloadUrl = "local"; // not needed for local playback
+        downloadUrl = null;
       } else {
         _log.fine(
           'Track not in local cache, requesting download URL from cloud: ${track.cloudPath}',
@@ -95,6 +95,7 @@ class AudioPlayerService {
       await audioHandler.playTrack(
         track,
         downloadUrl: downloadUrl,
+        getDownloadUrl: () => cloudMediaService.getDownloadUrlForTrack(track),
         localPath: localPath,
         startPaused: startPaused,
         onMetadataChanged: () {
