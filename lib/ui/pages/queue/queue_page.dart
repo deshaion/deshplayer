@@ -1,56 +1,166 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../models/track.dart';
 import '../../../services/player_provider.dart';
 
-class QueuePage extends StatelessWidget {
+class QueuePage extends StatefulWidget {
   const QueuePage({super.key});
+
+  @override
+  State<QueuePage> createState() => _QueuePageState();
+}
+
+class _QueuePageState extends State<QueuePage> {
+  bool _showHistory = false;
+
+  Future<void> _showHistoryTrackActions(
+    BuildContext context,
+    PlayerProvider player,
+    Track track,
+  ) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.play_arrow),
+              title: const Text('Play'),
+              onTap: () => Navigator.of(context).pop('play'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.skip_next),
+              title: const Text('Play next'),
+              onTap: () => Navigator.of(context).pop('next'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.queue_music),
+              title: const Text('Add to end of queue'),
+              onTap: () => Navigator.of(context).pop('end'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    switch (action) {
+      case 'play':
+        await player.playTrackDirectly(track);
+      case 'next':
+        player.playNextInQueue(track);
+      case 'end':
+        player.addToQueue(track);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerProvider>();
     final queue = player.queue;
     final currentTrack = player.currentTrack;
+    final history = player.playbackHistory;
+    final occurrenceCounts = <String, int>{};
+    final queueKeys = queue.map((track) {
+      final occurrence = occurrenceCounts.update(
+        track.id,
+        (count) => count + 1,
+        ifAbsent: () => 0,
+      );
+      return '${track.id}-$occurrence';
+    }).toList();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Up Next'),
+      appBar: AppBar(title: Text(_showHistory ? 'History' : 'Up Next')),
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'queue_history_toggle',
+        onPressed: () {
+          setState(() {
+            _showHistory = !_showHistory;
+          });
+        },
+        icon: Icon(_showHistory ? Icons.queue_music : Icons.history),
+        label: Text(_showHistory ? 'Queue' : 'History'),
       ),
-      body: Column(
-        children: [
-          if (currentTrack != null)
-            ListTile(
-              leading: Icon(Icons.volume_up, color: Theme.of(context).colorScheme.primary),
-              title: Text(
-                currentTrack.title ?? 'Unknown',
-                style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary),
-              ),
-              subtitle: Text(currentTrack.artist ?? 'Unknown Artist'),
-              trailing: const Text('Now Playing', style: TextStyle(fontSize: 12, color: Colors.grey)),
-            ),
-          const Divider(),
-          Expanded(
-            child: queue.isEmpty
-                ? const Center(child: Text('Queue is empty'))
+      body: _showHistory
+          ? history.isEmpty
+                ? const Center(child: Text('History is empty'))
                 : ListView.builder(
-                    itemCount: queue.length,
+                    padding: const EdgeInsets.only(bottom: 88),
+                    itemCount: history.length,
                     itemBuilder: (context, index) {
-                      final track = queue[index];
+                      final track = history[index];
                       return ListTile(
-                        leading: Text('${index + 1}', style: const TextStyle(color: Colors.grey)),
+                        leading: Text(
+                          '${index + 1}',
+                          style: const TextStyle(color: Colors.grey),
+                        ),
                         title: Text(track.title ?? 'Unknown'),
                         subtitle: Text(track.artist ?? 'Unknown Artist'),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.close),
-                          onPressed: () {
-                            player.removeFromQueue(track);
-                          },
-                        ),
+                        onTap: () {
+                          _showHistoryTrackActions(context, player, track);
+                        },
                       );
                     },
+                  )
+          : Column(
+              children: [
+                if (currentTrack != null)
+                  ListTile(
+                    leading: Icon(
+                      Icons.volume_up,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    title: Text(
+                      currentTrack.title ?? 'Unknown',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                    subtitle: Text(currentTrack.artist ?? 'Unknown Artist'),
+                    trailing: const Text(
+                      'Now Playing',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
                   ),
-          ),
-        ],
-      ),
+                const Divider(),
+                Expanded(
+                  child: queue.isEmpty
+                      ? const Center(child: Text('Queue is empty'))
+                      : ReorderableListView.builder(
+                          padding: const EdgeInsets.only(bottom: 88),
+                          itemCount: queue.length,
+                          buildDefaultDragHandles: false,
+                          onReorderItem: player.reorderQueue,
+                          itemBuilder: (context, index) {
+                            final track = queue[index];
+                            return ReorderableDelayedDragStartListener(
+                              key: ValueKey(queueKeys[index]),
+                              index: index,
+                              child: ListTile(
+                                leading: Text(
+                                  '${index + 1}',
+                                  style: const TextStyle(color: Colors.grey),
+                                ),
+                                title: Text(track.title ?? 'Unknown'),
+                                subtitle: Text(
+                                  track.artist ?? 'Unknown Artist',
+                                ),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.close),
+                                  onPressed: () {
+                                    player.removeFromQueue(track);
+                                  },
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
     );
   }
 }

@@ -18,9 +18,15 @@ class AudioPlayerService {
 
   AudioPlayerService(this.storageService);
 
-  Future<void> init() async {
+  Future<void> init({
+    required Future<void> Function() onSkipToPrevious,
+    required Future<void> Function() onSkipToNext,
+  }) async {
     final handler = await AudioService.init(
-      builder: () => DeshAudioHandler(),
+      builder: () => DeshAudioHandler(
+        onSkipToPrevious: onSkipToPrevious,
+        onSkipToNext: onSkipToNext,
+      ),
       config: const AudioServiceConfig(
         androidNotificationChannelId: 'com.ryanheise.bg_demo.channel.audio',
         androidNotificationChannelName: 'Audio playback',
