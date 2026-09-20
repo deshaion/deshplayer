@@ -72,6 +72,51 @@ available. If you change this setting after an earlier Linux build, run
 `flutter clean` once before running or rebuilding so CMake regenerates the
 native configuration.
 
+#### Troubleshooting: `KeyringLocked` when opening Settings
+
+Deshplayer stores cloud access tokens through `libsecret`. Linux therefore
+needs a Secret Service provider such as GNOME Keyring in addition to the
+`libsecret` library. If one is not installed, install GNOME Keyring and its
+management UI:
+
+```bash
+sudo apt install gnome-keyring seahorse
+```
+
+If Settings reports `KeyringLocked`, first log out and back in, then retry the
+connection check. On desktops such as XFCE, the Secret Service component may
+not start automatically. It can be started for the current session with:
+
+```bash
+gnome-keyring-daemon --start --components=secrets
+```
+
+Use **Passwords and Keys** (`seahorse`) to confirm that the **Passwords** and
+**Login** keyrings are visible and unlocked.
+
+If Seahorse instead reports an error similar to the following, the running
+daemon has stale in-memory state:
+
+```text
+No such secret item at path: /org/freedesktop/secrets/collection/login/11
+```
+
+Back up the encrypted keyring, replace the daemon, and reopen Seahorse:
+
+```bash
+cp -a ~/.local/share/keyrings \
+  ~/.local/share/keyrings.backup-$(date +%Y%m%d-%H%M%S)
+export GNOME_KEYRING_CONTROL=/run/user/$(id -u)/keyring
+gnome-keyring-daemon --replace --daemonize
+pkill seahorse
+seahorse
+```
+
+Unlock the **Login** keyring if prompted, return to Deshplayer Settings, and
+select **Retry**. A normal reboot also restarts the daemon. Do not delete
+`~/.local/share/keyrings`; it may contain credentials used by Deshplayer and
+other applications.
+
 ### macOS
 
 The macOS build uses CocoaPods and CMake to compile the native
