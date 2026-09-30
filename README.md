@@ -1,4 +1,4 @@
-<img src="icon-source.png" alt="Deshplayer icon" width="160">
+<img src="icon-transparent.png" alt="Deshplayer icon" width="160">
 
 # DeshPlayer
 
