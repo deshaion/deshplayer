@@ -1,3 +1,5 @@
+<img src="icon-source.png" alt="Deshplayer icon" width="160">
+
 # deshplayer-private
 
 ## Media Player - Synchronization
