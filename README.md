@@ -2,6 +2,12 @@
 
 # DeshPlayer
 
+## License
+
+DeshPlayer is source available under the [PolyForm Perimeter License 1.0.1](LICENSE.md). The license permits use, modification, and distribution, but does not permit providing others a product that competes with DeshPlayer. See the [required copyright notice](NOTICE).
+
+Third-party code keeps its own license, including [`third_party/flutter_taglib`](third_party/flutter_taglib/LICENSE) (Apache 2.0).
+
 ## Media Player - Synchronization
 
 Deshplayer seamlessly synchronizes your media and data with cloud storage to provide a unified experience.
