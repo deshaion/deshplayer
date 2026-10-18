@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -6,6 +8,7 @@ import '../../services/hive_storage_service.dart';
 import '../../models/settings.dart';
 import '../../utils/cache_size_parser.dart';
 import 'logs_page.dart';
+import 'cache_export_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -319,6 +322,16 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
           ),
+          if (Platform.isAndroid || Platform.isIOS)
+            ListTile(
+              leading: const Icon(Icons.download),
+              title: const Text('Download from cache'),
+              subtitle: const Text('Copy cached tracks to a folder'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const CacheExportPage()),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: ElevatedButton(
