@@ -24,7 +24,7 @@ class _MobileControlPanelState extends State<MobileControlPanel> {
     final isShuffle = player.settings.shuffle;
     final repeatMode = player.settings.repeatMode;
 
-    const duration = Duration(milliseconds: 300);
+    const duration = Duration(milliseconds: 450);
     const curve = Curves.easeInOutCubic;
 
     return TweenAnimationBuilder<double>(
