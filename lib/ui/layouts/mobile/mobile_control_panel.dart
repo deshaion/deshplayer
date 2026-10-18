@@ -24,148 +24,179 @@ class _MobileControlPanelState extends State<MobileControlPanel> {
     final isShuffle = player.settings.shuffle;
     final repeatMode = player.settings.repeatMode;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
-      padding: EdgeInsets.symmetric(
-        horizontal: 16.0,
-        vertical: widget.compact ? 8.0 : 24.0,
-      ),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(13),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (widget.compact)
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
+    const duration = Duration(milliseconds: 300);
+    const curve = Curves.easeInOutCubic;
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(end: widget.compact ? 0.0 : 1.0),
+      duration: duration,
+      curve: curve,
+      builder: (context, expansion, child) => Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: 16.0,
+          vertical: 8.0 + 16.0 * expansion,
+        ),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha(13),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedCrossFade(
+              duration: duration,
+              firstCurve: curve,
+              secondCurve: curve,
+              sizeCurve: curve,
+              crossFadeState: widget.compact
+                  ? CrossFadeState.showFirst
+                  : CrossFadeState.showSecond,
+              firstChild: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      currentTrack?.title ?? 'No Track Selected',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (currentTrack?.artist?.isNotEmpty ?? false) ...[
+                    const SizedBox(width: 12),
+                    Flexible(
+                      child: Text(
+                        currentTrack!.artist!,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.grey[600],
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              secondChild: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
                     currentTrack?.title ?? 'No Track Selected',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                if (currentTrack?.artist?.isNotEmpty ?? false) ...[
-                  const SizedBox(width: 12),
-                  Flexible(
-                    child: Text(
-                      currentTrack!.artist!,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                  const SizedBox(height: 4),
+                  Text(
+                    currentTrack?.artist ?? '',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
-              ],
-            )
-          else ...[
-            Text(
-              currentTrack?.title ?? 'No Track Selected',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              currentTrack?.artist ?? '',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            SizedBox(height: 4.0 + 12.0 * expansion),
+            // Seek Slider
+            ProgressBar(
+              progress: player.position,
+              total: currentTrack?.duration ?? player.duration,
+              onSeek: player.seek,
+              barHeight: 4,
+              thumbRadius: 6,
+              timeLabelTextStyle: const TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+              ),
+            ),
+            // Keep the controls mounted so reversing a scroll reverses the
+            // animation. Bottom alignment slides them behind the top clip edge.
+            ClipRect(
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                heightFactor: expansion,
+                child: IgnorePointer(
+                  ignoring: widget.compact,
+                  child: ExcludeSemantics(
+                    excluding: widget.compact,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const SizedBox(
+                          width: 48,
+                        ), // Placeholder to balance the more_vert icon and perfectly center the controls
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: Icon(
+                                Icons.shuffle,
+                                color: isShuffle
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Colors.grey,
+                              ),
+                              onPressed: player.toggleShuffle,
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.skip_previous, size: 32),
+                              onPressed: player.playPrevious,
+                            ),
+                            FloatingActionButton(
+                              elevation: 0,
+                              onPressed: player.togglePlayPause,
+                              child: Icon(
+                                isPlaying ? Icons.pause : Icons.play_arrow,
+                                size: 32,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.skip_next, size: 32),
+                              onPressed: player.playNext,
+                            ),
+                            IconButton(
+                              icon: Icon(
+                                repeatMode == 2
+                                    ? Icons.repeat_one
+                                    : Icons.repeat,
+                                color: repeatMode > 0
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Colors.grey,
+                              ),
+                              onPressed: player.toggleRepeat,
+                            ),
+                          ],
+                        ),
+                        IconButton(
+                          key: _iconKey,
+                          icon: const Icon(Icons.more_vert, color: Colors.grey),
+                          onPressed: currentTrack != null
+                              ? () => _showTrackMenu(
+                                  context,
+                                  player,
+                                  currentTrack,
+                                  _iconKey,
+                                )
+                              : null,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ],
-          SizedBox(height: widget.compact ? 4 : 16),
-          // Seek Slider
-          ProgressBar(
-            progress: player.position,
-            total: currentTrack?.duration ?? player.duration,
-            onSeek: player.seek,
-            barHeight: 4,
-            thumbRadius: 6,
-            timeLabelTextStyle: const TextStyle(
-              fontSize: 12,
-              color: Colors.grey,
-            ),
-          ),
-          // Controls
-          if (!widget.compact)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const SizedBox(
-                  width: 48,
-                ), // Placeholder to balance the more_vert icon and perfectly center the controls
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: Icon(
-                        Icons.shuffle,
-                        color: isShuffle
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.grey,
-                      ),
-                      onPressed: player.toggleShuffle,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.skip_previous, size: 32),
-                      onPressed: player.playPrevious,
-                    ),
-                    FloatingActionButton(
-                      elevation: 0,
-                      onPressed: player.togglePlayPause,
-                      child: Icon(
-                        isPlaying ? Icons.pause : Icons.play_arrow,
-                        size: 32,
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.skip_next, size: 32),
-                      onPressed: player.playNext,
-                    ),
-                    IconButton(
-                      icon: Icon(
-                        repeatMode == 2 ? Icons.repeat_one : Icons.repeat,
-                        color: repeatMode > 0
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.grey,
-                      ),
-                      onPressed: player.toggleRepeat,
-                    ),
-                  ],
-                ),
-                IconButton(
-                  key: _iconKey,
-                  icon: const Icon(Icons.more_vert, color: Colors.grey),
-                  onPressed: currentTrack != null
-                      ? () => _showTrackMenu(
-                          context,
-                          player,
-                          currentTrack,
-                          _iconKey,
-                        )
-                      : null,
-                ),
-              ],
-            ),
-        ],
+        ),
       ),
     );
   }
