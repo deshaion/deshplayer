@@ -5,7 +5,9 @@ class CloudNode {
   final String? mimeType;
   final int? size;
   final String? downloadUrl; // some providers give this upfront
-  final String? md5; // to check duplicates if needed, but we'll use path
+  final String? md5;
+  final String? sha1;
+  final String? sha256;
 
   CloudNode({
     required this.path,
@@ -15,5 +17,7 @@ class CloudNode {
     this.size,
     this.downloadUrl,
     this.md5,
+    this.sha1,
+    this.sha256,
   });
 }

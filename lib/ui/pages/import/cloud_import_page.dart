@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 import '../../../services/cloud_media_service.dart';
 import '../../../services/cloud_provider.dart';
 import '../../../models/cloud_node.dart';
@@ -33,13 +34,16 @@ class _CloudImportPageState extends State<CloudImportPage> {
   }
 
   Future<void> _initProvider() async {
-    for (final p in _cloudMediaService.providers) {
-      if (await p.isConnected()) {
-        setState(() {
-          _selectedProvider = p;
-        });
-        _loadPath('');
-        break;
+    for (final provider in _cloudMediaService.providers) {
+      try {
+        if (await provider.isConnected()) {
+          if (!mounted) return;
+          setState(() => _selectedProvider = provider);
+          await _loadPath('');
+          return;
+        }
+      } catch (error, stackTrace) {
+        _log.warning('Could not connect to ${provider.name}', error, stackTrace);
       }
     }
   }
@@ -58,7 +62,13 @@ class _CloudImportPageState extends State<CloudImportPage> {
     });
 
     try {
-      final nodes = await _selectedProvider!.listPath(path);
+      final nodes = <CloudNode>[];
+      while (true) {
+        final page = await _selectedProvider!.listPath(path, limit: 100, offset: nodes.length);
+        nodes.addAll(page);
+        if (page.length < 100) break;
+      }
+      if (!mounted) return;
       _log.fine('Loaded ${nodes.length} nodes from $path');
       setState(() {
         _nodes = nodes;
@@ -66,6 +76,7 @@ class _CloudImportPageState extends State<CloudImportPage> {
       });
     } catch (e, stackTrace) {
       _log.severe('Error loading path: $path', e, stackTrace);
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
@@ -168,11 +179,12 @@ class _CloudImportPageState extends State<CloudImportPage> {
 
   Future<void> _importSingleFile(CloudNode node, [HiveStorageService? storageService, Set<String>? existingCloudPaths, Map<String, dynamic>? folderMetadata, Map<String, Track>? globalTracksByPath]) async {
     if (_selectedProvider == null) return;
+    if (node.mimeType?.startsWith('application/vnd.google-apps.') ?? false) return;
 
     // Check if it's audio
     final hasAudioMime = node.mimeType != null && node.mimeType!.startsWith('audio/');
 
-    final lowerPath = node.path.toLowerCase();
+    final lowerPath = node.name.toLowerCase();
     final hasAudioExtension = lowerPath.endsWith('.m4a') ||
                               lowerPath.endsWith('.mp3') ||
                               lowerPath.endsWith('.ogg') ||
@@ -250,7 +262,7 @@ class _CloudImportPageState extends State<CloudImportPage> {
     }
 
     final newTrack = Track(
-       id: DateTime.now().millisecondsSinceEpoch.toString() + node.name, // unique enough
+       id: const Uuid().v4(),
        cloudPath: fullCloudPath,
        title: title,
        artist: artist,
