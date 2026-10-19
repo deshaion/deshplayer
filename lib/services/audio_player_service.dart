@@ -102,6 +102,8 @@ class AudioPlayerService {
         track,
         downloadUrl: downloadUrl,
         getDownloadUrl: () => cloudMediaService.getDownloadUrlForTrack(track),
+        getDownloadHeaders: () =>
+            cloudMediaService.getDownloadHeadersForTrack(track),
         localPath: localPath,
         startPaused: startPaused,
         onMetadataChanged: () {

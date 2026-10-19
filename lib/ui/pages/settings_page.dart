@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../services/cloud_media_service.dart';
+import '../components/connect_provider_dialog.dart';
+import 'package:logging/logging.dart';
 import '../../services/hive_storage_service.dart';
 import '../../models/settings.dart';
 import '../../utils/cache_size_parser.dart';
@@ -20,6 +22,8 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final CloudMediaService _cloudMediaService = CloudMediaService();
   final HiveStorageService _storageService = HiveStorageService();
+  final _log = Logger('SettingsPage');
+  Set<String> _configuredProviderIds = {};
   bool _isChecking = true;
   Map<String, bool> _connectionStatuses = {};
   Map<String, String> _connectionErrors = {};
@@ -71,10 +75,20 @@ class _SettingsPageState extends State<SettingsPage> {
 
     final statuses = <String, bool>{};
     final errors = <String, String>{};
+    final configured = <String>{};
     for (final provider in _cloudMediaService.providers) {
       try {
-        statuses[provider.id] = await provider.isConnected();
-      } catch (error) {
+        if (await provider.hasCredentials()) {
+          configured.add(provider.id);
+          statuses[provider.id] = await provider.isConnected();
+        }
+      } catch (error, stackTrace) {
+        configured.add(provider.id);
+        _log.warning(
+          'Could not check ${provider.name} connection',
+          error,
+          stackTrace,
+        );
         statuses[provider.id] = false;
         errors[provider.id] = _connectionErrorMessage(error);
       }
@@ -82,6 +96,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
     if (mounted) {
       setState(() {
+        _configuredProviderIds = configured;
         _connectionStatuses = statuses;
         _connectionErrors = errors;
         _isChecking = false;
@@ -118,45 +133,44 @@ class _SettingsPageState extends State<SettingsPage> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _showConnectDialog(String providerId) {
-    final provider = _cloudMediaService.getProvider(providerId);
-    if (provider == null) return;
-
-    final controller = TextEditingController();
-
-    showDialog(
+  Future<void> _showProviderPicker() async {
+    final available = _cloudMediaService.providers
+        .where((provider) => !_configuredProviderIds.contains(provider.id))
+        .toList();
+    final selected = await showDialog<String>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Connect to ${provider.name}'),
-          content: TextField(
-            controller: controller,
-            decoration: const InputDecoration(
-              labelText: 'Access Token',
-              hintText: 'Enter your OAuth token',
+      builder: (context) => SimpleDialog(
+        title: const Text('Choose a cloud provider'),
+        children: [
+          if (available.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Text('All available providers are already added.'),
+            ),
+          ...available.map(
+            (provider) => SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, provider.id),
+              child: ListTile(
+                leading: const Icon(Icons.cloud_outlined),
+                title: Text(provider.name),
+              ),
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () async {
-                Navigator.of(context).pop();
-                try {
-                  await provider.connect(controller.text);
-                  await _checkConnections();
-                } catch (error) {
-                  _setProviderError(providerId, error);
-                }
-              },
-              child: const Text('Connect'),
-            ),
-          ],
-        );
-      },
+        ],
+      ),
     );
+    if (selected != null && mounted) await _showConnectDialog(selected);
+  }
+
+  Future<void> _showConnectDialog(String providerId) async {
+    final provider = _cloudMediaService.getProvider(providerId);
+    if (provider == null) return;
+    await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ConnectProviderDialog(provider: provider),
+    );
+    if (mounted) await _checkConnections();
   }
 
   void _disconnectProvider(String providerId) async {
@@ -210,50 +224,72 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
           const Divider(),
-          const Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Text(
-              'Cloud Providers',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Cloud Providers',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: _isChecking ? null : _showProviderPicker,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Connect'),
+                ),
+              ],
             ),
           ),
-          ..._cloudMediaService.providers.map((provider) {
-            final isConnected = _connectionStatuses[provider.id] ?? false;
-            final connectionError = _connectionErrors[provider.id];
-            return ListTile(
-              leading: Icon(
-                connectionError == null ? Icons.cloud : Icons.error_outline,
-                color: connectionError == null
-                    ? null
-                    : Theme.of(context).colorScheme.error,
+          if (!_isChecking && _configuredProviderIds.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                'No cloud providers connected. Tap Connect to add one.',
               ),
-              title: Text(provider.name),
-              subtitle: Text(
-                connectionError ??
-                    (isConnected ? 'Connected' : 'Not connected'),
-                style: connectionError == null
-                    ? null
-                    : TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-              trailing: connectionError != null
-                  ? TextButton(
-                      onPressed: _isChecking ? null : _checkConnections,
-                      child: const Text('Retry'),
-                    )
-                  : isConnected
-                  ? TextButton(
-                      onPressed: () => _disconnectProvider(provider.id),
-                      child: const Text(
-                        'Disconnect',
-                        style: TextStyle(color: Colors.red),
+            ),
+          ..._cloudMediaService.providers
+              .where((provider) => _configuredProviderIds.contains(provider.id))
+              .map((provider) {
+                final connected = _connectionStatuses[provider.id] ?? false;
+                final error = _connectionErrors[provider.id];
+                return ListTile(
+                  leading: Icon(connected ? Icons.cloud_done : Icons.cloud_off),
+                  title: Text(provider.name),
+                  subtitle: Text(
+                    error ??
+                        (connected
+                            ? 'Connected'
+                            : 'Connection needs attention'),
+                  ),
+                  trailing: PopupMenuButton<String>(
+                    enabled: !_isChecking,
+                    tooltip: 'Connection options',
+                    onSelected: (value) {
+                      if (value == 'reconnect') _showConnectDialog(provider.id);
+                      if (value == 'retry') _checkConnections();
+                      if (value == 'disconnect') {
+                        _disconnectProvider(provider.id);
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'reconnect',
+                        child: Text('Edit credentials'),
                       ),
-                    )
-                  : TextButton(
-                      onPressed: () => _showConnectDialog(provider.id),
-                      child: const Text('Connect'),
-                    ),
-            );
-          }),
+                      PopupMenuItem(
+                        value: 'retry',
+                        child: Text('Check connection'),
+                      ),
+                      PopupMenuItem(
+                        value: 'disconnect',
+                        child: Text('Disconnect'),
+                      ),
+                    ],
+                  ),
+                );
+              }),
           const Divider(),
           const Padding(
             padding: EdgeInsets.all(16.0),

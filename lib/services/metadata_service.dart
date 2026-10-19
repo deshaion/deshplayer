@@ -23,6 +23,7 @@ class MetadataService {
 
       if (downloadUrl != null) {
         final request = await HttpClient().getUrl(Uri.parse(downloadUrl));
+        (await provider.getDownloadHeaders()).forEach(request.headers.set);
         final response = await request.close();
 
         if (response.statusCode == 200) {

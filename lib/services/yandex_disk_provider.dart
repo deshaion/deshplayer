@@ -26,6 +26,13 @@ class YandexDiskProvider implements CloudProvider {
   }
 
   @override
+  Future<bool> hasCredentials() async =>
+      (await _getToken())?.isNotEmpty ?? false;
+
+  @override
+  Future<Map<String, String>> getDownloadHeaders() async => {};
+
+  @override
   Future<bool> isConnected() async {
     final token = await _getToken();
     _log.info(
@@ -59,8 +66,20 @@ class YandexDiskProvider implements CloudProvider {
 
   @override
   Future<void> connect(String token) async {
-    _log.severe('Yandex API connect ${token.isNotEmpty}');
-    await _secureStorage.saveToken(id, token);
+    final value = token.trim();
+    if (value.isEmpty) throw ArgumentError('Enter an OAuth access token.');
+    final response = await http.get(
+      Uri.parse('https://cloud-api.yandex.net/v1/disk'),
+      headers: {'Authorization': 'OAuth $value'},
+    );
+    if (response.statusCode != 200) {
+      _log.warning('Yandex connection failed: HTTP ${response.statusCode}');
+      throw HttpException(
+        'Could not connect to Yandex Disk (${response.statusCode}). Check your OAuth token.',
+      );
+    }
+    await _secureStorage.saveToken(id, value);
+    _log.info('Yandex Disk connected');
   }
 
   @override

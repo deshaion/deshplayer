@@ -77,6 +77,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     Track track, {
     required String? downloadUrl,
     required Future<String> Function() getDownloadUrl,
+    Future<Map<String, String>> Function()? getDownloadHeaders,
     required String localPath,
     bool startPaused = false,
     void Function()? onMetadataChanged,
@@ -154,6 +155,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
           track,
           onMetadataChanged,
           onCacheCompleted,
+          getDownloadHeaders,
         );
       }
 
@@ -318,6 +320,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     Track track,
     void Function()? onMetadataChanged,
     void Function()? onCacheCompleted,
+    Future<Map<String, String>> Function()? getDownloadHeaders,
   ) async {
     final streamer = PullBufferDiskStream();
     _pullBufferStream = streamer;
@@ -327,6 +330,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       source = await streamer.start(
         url: downloadUrl,
         finalFile: finalFile,
+        getHeaders: getDownloadHeaders,
         onDuration: (duration) {
           if (_isDisposed || _pullBufferStream != streamer) return;
           track.duration = duration;

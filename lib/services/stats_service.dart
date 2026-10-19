@@ -150,12 +150,13 @@ class StatsService {
           String cleanFolder = folder.replaceAll(RegExp(r'^/+|/+$'), '');
           if (cleanFolder.isEmpty) cleanFolder = 'Statistics';
 
+          final cloudFolder = provider.id == 'yandex_disk' ? 'disk:/$cleanFolder' : '/$cleanFolder';
           final Map<String, String> remoteMd5s = {};
 
           // --- DOWNLOAD PHASE ---
           // Run download phase first to get current remote MD5s
           try {
-              final nodes = await provider.listPath('disk:/$cleanFolder');
+              final nodes = await provider.listPath(cloudFolder);
               for (final node in nodes) {
                   if (node.isDir || !node.name.endsWith('.json')) continue;
 
@@ -180,7 +181,7 @@ class StatsService {
                       _log.info('Downloading updated stats for $key');
                       final downloadUrl = await provider.getDownloadUrl(node.path);
                       if (downloadUrl != null) {
-                          final response = await http.get(Uri.parse(downloadUrl));
+                          final response = await http.get(Uri.parse(downloadUrl), headers: await provider.getDownloadHeaders());
                           if (response.statusCode == 200) {
                               await _statsBox.put(key, response.body);
                               await _statsBox.put('$key-md5', remoteMd5);
@@ -232,7 +233,7 @@ class StatsService {
                   final file = File('${cacheDir.path}/$keyStr.json');
                   await file.writeAsString(dataStr);
 
-                  await provider.uploadFile('disk:/$cleanFolder/$keyStr.json', file);
+                  await provider.uploadFile('$cloudFolder/$keyStr.json', file);
 
                   if (file.existsSync()) {
                       file.deleteSync();

@@ -34,6 +34,7 @@ class PullBufferDiskStream {
   Completer<void> _dataChanged = Completer<void>();
 
   late Uri _remoteUri;
+  Future<Map<String, String>> Function()? _getHeaders;
   late File _tempFile;
   late File _finalFile;
   File? _readFile;
@@ -57,6 +58,7 @@ class PullBufferDiskStream {
   Future<AudioSource> start({
     required String url,
     required File finalFile,
+    Future<Map<String, String>> Function()? getHeaders,
     void Function(Duration duration)? onDuration,
     void Function(AudioTagProbe tags)? onTags,
     void Function()? onCacheCompleted,
@@ -64,6 +66,7 @@ class PullBufferDiskStream {
     void Function(Object error, StackTrace stackTrace)? onError,
   }) async {
     _remoteUri = Uri.parse(url);
+    _getHeaders = getHeaders;
     _finalFile = finalFile;
     _tempFile = File('${finalFile.path}.tmp');
     _readFile = _tempFile;
@@ -76,7 +79,9 @@ class PullBufferDiskStream {
     if (await _tempFile.exists()) await _tempFile.delete();
     await _tempFile.parent.create(recursive: true);
 
-    final response = await _client.send(http.Request('GET', _remoteUri));
+    final request = http.Request('GET', _remoteUri)
+      ..headers.addAll(await _getHeaders?.call() ?? {});
+    final response = await _client.send(request);
     if (response.statusCode != HttpStatus.ok) {
       _client.close();
       throw HttpException(
@@ -228,6 +233,7 @@ class PullBufferDiskStream {
   Future<Uint8List> _fetchRangeOrWait(int offset) async {
     final end = (offset + _encodedChunkSizeBytes - 1).clamp(0, _totalBytes - 1);
     final request = http.Request('GET', _remoteUri)
+      ..headers.addAll(await _getHeaders?.call() ?? {})
       ..headers[HttpHeaders.rangeHeader] = 'bytes=$offset-$end';
     final response = await _client.send(request);
     if (response.statusCode == HttpStatus.partialContent) {

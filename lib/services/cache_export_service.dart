@@ -52,6 +52,9 @@ class CacheExportService {
 
   static String fileName(Track track) {
     var name = track.cloudPath.split('/').last;
+    if (track.cloudPath.startsWith('google_drive://') && name.startsWith('@')) {
+      name = name.substring(name.indexOf('~') + 1);
+    }
     try {
       name = Uri.decodeComponent(name);
     } on FormatException {

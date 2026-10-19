@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/track.dart';
 import 'cloud_provider.dart';
 import 'yandex_disk_provider.dart';
+import 'google_drive_provider.dart';
 import 'secure_storage_service.dart';
 import 'hive_storage_service.dart';
 import '../models/exceptions.dart';
@@ -22,6 +23,7 @@ class CloudMediaService {
     _secureStorage = SecureStorageService();
     providers = [
       YandexDiskProvider(_secureStorage),
+      GoogleDriveProvider(_secureStorage),
     ];
   }
 
@@ -91,7 +93,8 @@ class CloudMediaService {
     if (!file.existsSync()) {
       _log.info('Downloading file to cache: ${file.path}');
       // Download actual file using streaming
-      final request = http.Request('GET', Uri.parse(downloadUrl));
+      final request = http.Request('GET', Uri.parse(downloadUrl))
+        ..headers.addAll(await provider.getDownloadHeaders());
       final response = await request.send();
 
       if (response.statusCode == 200) {
@@ -188,6 +191,12 @@ class CloudMediaService {
     } catch (e) {
       _log.severe('Error during cache cleanup: $e');
     }
+  }
+
+  Future<Map<String, String>> getDownloadHeadersForTrack(Track track) async {
+    final provider = getProvider(track.cloudPath.split('://').first);
+    if (provider == null) throw StateError('Cloud provider is unavailable.');
+    return provider.getDownloadHeaders();
   }
 
   Future<String> getDownloadUrlForTrack(Track track) async {

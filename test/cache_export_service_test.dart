@@ -70,6 +70,15 @@ void main() {
       ),
       '100%.mp3',
     );
+    expect(
+      CacheExportService.fileName(
+        track(
+          'a',
+          cloudPath: 'google_drive:///@folder~Music/@file~Song%20Name.mp3',
+        ),
+      ),
+      'Song Name.mp3',
+    );
   });
 
   const channel = MethodChannel('deshplayer/cache_export');
