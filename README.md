@@ -29,6 +29,10 @@ When playing a Book Mode playlist:
 
 ## How to build it
 
+GitHub Actions can build Linux AppImage, Windows, Android APK, and macOS
+artifacts. See [CI builds and optional signing setup](docs/ci-builds.md) for
+running the workflow and configuring Android or macOS signing.
+
 Before building for any platform, ensure you have Flutter installed and run `flutter doctor` to verify your environment is set up correctly.
 
 The project uses `build_runner` and `hive_generator` to generate Hive type adapters for local storage. Before running or building the app, make sure to generate these files:
