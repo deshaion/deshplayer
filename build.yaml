@@ -1,0 +1,8 @@
+targets:
+  $default:
+    builders:
+      hive_generator:hive_generator:
+        # Hive's analyzer predates modern Dart collection syntax. Only scan
+        # Hive models, rather than unrelated services, UI code, and tests.
+        generate_for:
+          - lib/models/**.dart
