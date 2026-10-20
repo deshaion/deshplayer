@@ -1,10 +1,10 @@
 # GitHub Actions builds
 
-The **Build applications** workflow runs on pull requests, pushes to `main` or
-`master`, version tags starting with `v`, published GitHub releases, and manually
-from **Actions → Build applications → Run workflow**. Push these files to GitHub
-to enable it. No
-signing secrets are required for the initial builds.
+The **Build applications** workflow runs only on pushed version tags starting
+with `v`, published GitHub releases, and manually from **Actions → Build
+applications → Run workflow**. Pull requests and branch pushes do not trigger
+builds. Push these files to GitHub to enable it. No signing secrets are required
+for the initial builds.
 
 Each platform runs independently. Open a completed run and download its
 **Artifacts**; they are retained for 14 days. For a published GitHub release,
@@ -32,7 +32,7 @@ Actions run. Rerunning the attachment job replaces existing assets with the same
 names. The built-in GitHub token handles uploads; no personal access token is
 needed.
 
-Manual workflow runs, ordinary pushes, and tag pushes produce Actions artifacts
+Manual workflow runs and matching tag pushes produce Actions artifacts
 only. They do not create a GitHub release or attach to an existing one. For an
 existing release published before this workflow was installed, you can download
 the Actions artifacts and attach their contained files in **Edit release**, or
