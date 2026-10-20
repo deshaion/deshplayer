@@ -1,4 +1,4 @@
-package com.example.deshplayer
+package dev.deshhub.deshplayer
 
 import android.app.Activity
 import android.content.Intent
