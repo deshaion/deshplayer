@@ -1,0 +1,155 @@
+name: Build applications
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: builds-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.47.7'
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux
+            runner: ubuntu-24.04
+          - target: windows
+            runner: windows-2022
+          - target: android
+            runner: ubuntu-24.04
+          - target: macos
+            runner: macos-15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config lld-18 llvm-18 libgtk-3-dev libsecret-1-dev libasound2-dev patchelf file desktop-file-utils librsvg2-bin
+
+      - name: Set up Java
+        if: matrix.target == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install macOS build dependencies
+        if: matrix.target == 'macos'
+        run: |
+          command -v cmake || brew install cmake
+          command -v pod || brew install cocoapods
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # Cache the SDK, but use fresh native build output on every job.
+      - run: flutter pub get --enforce-lockfile
+      - run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Configure optional Android signing
+        if: matrix.target == 'android' && github.event_name != 'pull_request'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: python3 .github/scripts/android-signing.py
+
+      - name: Build Android APK
+        if: matrix.target == 'android'
+        run: |
+          flutter build apk --release --no-pub
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/Deshplayer-android.apk
+          if [[ -f android/key.properties ]]; then
+            echo 'Android: signed with the configured keystore.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Android: signed with a temporary debug key. Configure Android signing secrets for a stable update identity.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Build Linux and package AppImage
+        if: matrix.target == 'linux'
+        env:
+          NO_XIPH_LIBS: '1'
+        run: |
+          flutter build linux --release --no-pub
+          bash .github/scripts/package-appimage.sh
+
+      - name: Build Windows
+        if: matrix.target == 'windows'
+        run: flutter build windows --release --no-pub
+
+      - name: Package Windows bundle
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dist/Deshplayer-windows-x64.zip
+
+      - name: Build and package macOS
+        if: matrix.target == 'macos'
+        env:
+          # Pull requests always build without access to signing credentials.
+          MACOS_CERTIFICATE_BASE64: ${{ github.event_name != 'pull_request' && secrets.MACOS_CERTIFICATE_BASE64 || '' }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.MACOS_CERTIFICATE_PASSWORD || '' }}
+          MACOS_PROFILE_BASE64: ${{ github.event_name != 'pull_request' && secrets.MACOS_PROFILE_BASE64 || '' }}
+          MACOS_SIGNING_IDENTITY: ${{ github.event_name != 'pull_request' && secrets.MACOS_SIGNING_IDENTITY || '' }}
+        run: bash .github/scripts/build-macos.sh
+
+      - name: Upload application
+        uses: actions/upload-artifact@v4
+        with:
+          name: Deshplayer-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove Android signing files
+        if: always() && matrix.target == 'android'
+        run: rm -f android/key.properties "$RUNNER_TEMP/deshplayer-android.jks"
+
+  attach-release:
+    name: Attach builds to release
+    if: github.event_name == 'release'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download all platform builds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Deshplayer-*
+          path: dist
+          merge-multiple: true
+
+      - name: Attach files to the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" dist/* --clobber

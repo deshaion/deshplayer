@@ -2,42 +2,99 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_taglib/flutter_taglib.dart';
 import 'package:logging/logging.dart';
+import 'package:http/http.dart' as http;
+import '../models/exceptions.dart';
 import '../models/track.dart';
 import 'cloud_provider.dart';
 import 'hive_storage_service.dart';
+import 'google_drive_provider.dart';
 
 class MetadataService {
+  MetadataService({http.Client? client}) : _client = client ?? http.Client();
+
+  final http.Client _client;
   final _log = Logger('MetadataService');
   static const String metadataFileName = 'metadata.json';
+  static final Map<String, Future<void>> _pendingUpdates = {};
 
   // Read metadata.json from cloud path
   Future<Map<String, dynamic>?> getCloudMetadata(
     CloudProvider provider,
     String dirPath,
-    Directory localCacheDir,
-  ) async {
+    Directory localCacheDir, {
+    bool throwOnError = false,
+  }) async {
     try {
       final cloudMetadataPath =
           '${dirPath.endsWith('/') ? dirPath : '$dirPath/'}$metadataFileName';
-      final downloadUrl = await provider.getDownloadUrl(cloudMetadataPath);
-
-      if (downloadUrl != null) {
-        final request = await HttpClient().getUrl(Uri.parse(downloadUrl));
-        (await provider.getDownloadHeaders()).forEach(request.headers.set);
-        final response = await request.close();
-
-        if (response.statusCode == 200) {
-          final content = await response.transform(utf8.decoder).join();
-          return json.decode(content);
+      final paths = provider is GoogleDriveProvider
+          ? await provider.metadataFilePaths(dirPath)
+          : [cloudMetadataPath];
+      Map<String, dynamic>? metadata;
+      for (final path in paths) {
+        try {
+          final downloadUrl = await provider.getDownloadUrl(path);
+          if (downloadUrl == null) continue;
+          final response = await _client.get(
+            Uri.parse(downloadUrl),
+            headers: await provider.getDownloadHeaders(),
+          );
+          if (response.statusCode == 404) continue;
+          if (response.statusCode != 200) {
+            throw HttpException(
+              'Read cloud metadata failed (${response.statusCode}).',
+            );
+          }
+          final content = Map<String, dynamic>.from(
+            jsonDecode(response.body) as Map,
+          );
+          metadata ??= {};
+          metadata.addAll(content);
+        } on CloudFileNotFoundException {
+          // A copy may have been removed between listing and downloading.
         }
       }
+      return metadata;
+    } on CloudFileNotFoundException {
+      return null;
     } catch (e) {
-      _log.fine('No existing metadata.json found or failed to load: $e');
+      _log.warning('Failed to read cloud metadata: $e');
+      if (throwOnError) rethrow;
     }
     return null;
   }
 
   Future<void> updateMetadataInCloud(
+    CloudProvider provider,
+    String cloudFilePath,
+    Track track,
+    Directory localCacheDir, {
+    bool force = false,
+  }) async {
+    final schemeIdx = cloudFilePath.indexOf('://');
+    if (schemeIdx == -1) return;
+    final dirEnd = cloudFilePath.lastIndexOf('/');
+    if (dirEnd < schemeIdx + 3) return;
+    final key = '${provider.id}:${cloudFilePath.substring(0, dirEnd)}';
+    final previous = _pendingUpdates[key] ?? Future<void>.value();
+    final update = previous.then(
+      (_) => _updateMetadataInCloud(
+        provider,
+        cloudFilePath,
+        track,
+        localCacheDir,
+        force: force,
+      ),
+    );
+    _pendingUpdates[key] = update;
+    try {
+      await update;
+    } finally {
+      if (identical(_pendingUpdates[key], update)) _pendingUpdates.remove(key);
+    }
+  }
+
+  Future<void> _updateMetadataInCloud(
     CloudProvider provider,
     String cloudFilePath,
     Track track,
@@ -58,6 +115,7 @@ class MetadataService {
         provider,
         dirPath,
         localCacheDir,
+        throwOnError: true,
       );
       final fileName = actualPath.split('/').last;
       final providerPrefix = cloudFilePath.substring(0, schemeIdx + 3);
@@ -157,15 +215,13 @@ class MetadataService {
         'durationMs': duration.inMilliseconds,
       };
 
-      final localMetadataFile = File(
-        '${localCacheDir.path}/${DateTime.now().millisecondsSinceEpoch}_metadata.json',
-      );
-      await localMetadataFile.writeAsString(json.encode(metadata));
-
-      await provider.uploadFile(cloudMetadataPath, localMetadataFile);
-
-      if (localMetadataFile.existsSync()) {
-        localMetadataFile.deleteSync();
+      final uploadDirectory = await localCacheDir.createTemp('metadata_');
+      final localMetadataFile = File('${uploadDirectory.path}/metadata.json');
+      try {
+        await localMetadataFile.writeAsString(json.encode(metadata));
+        await provider.uploadFile(cloudMetadataPath, localMetadataFile);
+      } finally {
+        await uploadDirectory.delete(recursive: true);
       }
 
       _log.info('Successfully updated metadata for $fileName in cloud');

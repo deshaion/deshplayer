@@ -20,7 +20,7 @@ class GoogleDriveProvider implements CloudProvider {
   static const _api = 'https://www.googleapis.com/drive/v3';
   static const _folderType = 'application/vnd.google-apps.folder';
   static const _fields =
-      'id,name,mimeType,size,md5Checksum,sha1Checksum,sha256Checksum';
+      'id,name,mimeType,size,md5Checksum,sha1Checksum,sha256Checksum,modifiedTime';
 
   @override
   String get id => 'google_drive';
@@ -211,17 +211,24 @@ class GoogleDriveProvider implements CloudProvider {
   Future<String> _resolve(String path, {bool createFolders = false}) async {
     var parent = 'root';
     final segments = _segments(path);
-    for (final segment in segments) {
+    for (var index = 0; index < segments.length; index++) {
+      final segment = segments[index];
       final embedded = _embeddedId(segment);
       if (embedded != null) {
         parent = embedded;
         continue;
       }
-      final matches = await _list(
-        "'${_quote(parent)}' in parents and name = '${_quote(Uri.decodeComponent(segment))}'",
-        maxItems: 2,
-      );
-      if (matches.length > 1) {
+      final isMetadata =
+          !createFolders &&
+          index == segments.length - 1 &&
+          Uri.decodeComponent(segment) == 'metadata.json';
+      final matches = isMetadata
+          ? await _metadataMatches(parent)
+          : await _list(
+              "'${_quote(parent)}' in parents and name = '${_quote(Uri.decodeComponent(segment))}'",
+              maxItems: 2,
+            );
+      if (matches.length > 1 && !isMetadata) {
         throw StateError(
           'More than one Drive item has this name. Choose the folder from the cloud browser.',
         );
@@ -247,10 +254,37 @@ class GoogleDriveProvider implements CloudProvider {
         _check(response, 'Create Google Drive folder');
         parent = (jsonDecode(response.body) as Map)['id'] as String;
       } else {
-        parent = matches.single['id'] as String;
+        // Drive permits duplicate names. Keep one stable metadata file across
+        // reads and writes, independent of list order and modification times.
+        parent = isMetadata
+            ? (matches.map((file) => file['id'] as String).toList()..sort())
+                  .first
+            : matches.single['id'] as String;
       }
     }
     return parent;
+  }
+
+  Future<List<Map<String, dynamic>>> _metadataMatches(String parent) => _list(
+    "'${_quote(parent)}' in parents and name = 'metadata.json' and mimeType != '$_folderType'",
+  );
+
+  /// All metadata copies, oldest first so newer entries win when merged.
+  Future<List<String>> metadataFilePaths(String directory) async {
+    final parent = await _resolve(directory);
+    final matches = await _metadataMatches(parent);
+    matches.sort((a, b) {
+      final byTime = (a['modifiedTime'] as String? ?? '').compareTo(
+        b['modifiedTime'] as String? ?? '',
+      );
+      return byTime != 0
+          ? byTime
+          : (a['id'] as String).compareTo(b['id'] as String);
+    });
+    // Use the parent ID too, avoiding repeated resolution of named ancestors.
+    return matches
+        .map((file) => '/@$parent~folder/@${file['id']}~metadata.json')
+        .toList();
   }
 
   @override
