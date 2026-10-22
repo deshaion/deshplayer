@@ -4,11 +4,13 @@ import 'package:http/http.dart' as http;
 import '../models/cloud_node.dart';
 import '../models/exceptions.dart';
 import 'cloud_provider.dart';
+import 'network_http_client.dart';
 import 'secure_storage_service.dart';
 import 'package:logging/logging.dart';
 
 class YandexDiskProvider implements CloudProvider {
   final SecureStorageService _secureStorage;
+  final _client = NetworkHttpClient();
   static const String _baseUrl =
       'https://cloud-api.yandex.net/v1/disk/resources';
   final _log = Logger('API');
@@ -43,7 +45,7 @@ class YandexDiskProvider implements CloudProvider {
     if (token == null || token.isEmpty) return false;
     // Verify token
     try {
-      final response = await http.get(
+      final response = await _client.get(
         Uri.parse('https://cloud-api.yandex.net/v1/disk'),
         headers: {'Authorization': 'OAuth $token'},
       );
@@ -68,7 +70,7 @@ class YandexDiskProvider implements CloudProvider {
   Future<void> connect(String token) async {
     final value = token.trim();
     if (value.isEmpty) throw ArgumentError('Enter an OAuth access token.');
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('https://cloud-api.yandex.net/v1/disk'),
       headers: {'Authorization': 'OAuth $value'},
     );
@@ -104,7 +106,7 @@ class YandexDiskProvider implements CloudProvider {
       },
     );
 
-    final response = await http.get(
+    final response = await _client.get(
       uri,
       headers: {'Authorization': 'OAuth $token'},
     );
@@ -143,7 +145,7 @@ class YandexDiskProvider implements CloudProvider {
       '$_baseUrl/download',
     ).replace(queryParameters: {'path': path});
 
-    final response = await http.get(
+    final response = await _client.get(
       uri,
       headers: {'Authorization': 'OAuth $token'},
     );
@@ -170,7 +172,7 @@ class YandexDiskProvider implements CloudProvider {
       '$_baseUrl/upload',
     ).replace(queryParameters: {'path': path, 'overwrite': 'true'});
 
-    final uploadUrlResponse = await http.get(
+    final uploadUrlResponse = await _client.get(
       getUploadUrlUri,
       headers: {'Authorization': 'OAuth $token'},
     );

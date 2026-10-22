@@ -7,11 +7,12 @@ import 'package:logging/logging.dart';
 import '../models/cloud_node.dart';
 import '../models/exceptions.dart';
 import 'cloud_provider.dart';
+import 'network_http_client.dart';
 import 'secure_storage_service.dart';
 
 class GoogleDriveProvider implements CloudProvider {
   GoogleDriveProvider(this._storage, {http.Client? client})
-    : _client = client ?? http.Client();
+    : _client = NetworkHttpClient(inner: client);
 
   final SecureStorageService _storage;
   final http.Client _client;

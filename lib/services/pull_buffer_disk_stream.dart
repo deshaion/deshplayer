@@ -10,6 +10,7 @@ import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:flutter_taglib/flutter_taglib.dart';
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
+import 'network_http_client.dart';
 
 class AudioTagProbe {
   const AudioTagProbe({this.title, this.artist, this.duration});
@@ -25,7 +26,7 @@ class PullBufferDiskStream {
   static const _durationProbeBytes = 128 * 1024;
 
   final _log = Logger('PullBufferDiskStream');
-  final _client = http.Client();
+  final _client = NetworkHttpClient();
 
   StreamIterator<List<int>>? _downloadIterator;
   RandomAccessFile? _writer;
