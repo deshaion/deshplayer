@@ -578,6 +578,7 @@ class _MobileLayoutState extends State<MobileLayout> {
                             return false;
                           },
                           child: ListView.builder(
+                            key: ValueKey(_searchQuery),
                             itemCount: filteredTrackIds.length,
                             itemBuilder: (context, index) {
                               final trackId = filteredTrackIds[index];
