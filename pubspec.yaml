@@ -54,6 +54,9 @@ dependencies:
   package_info_plus: ^10.1.0
   crypto: ^3.0.7
   flutter_soloud: ^4.1.7
+  # Retained GPU scene/mesh renderer. Requires Flutter 3.47+.
+  flutter_scene: ^0.23.0
+  vector_math: ^2.1.4
   audio_service: ^0.18.19
   audio_session: ^0.2.4
 
