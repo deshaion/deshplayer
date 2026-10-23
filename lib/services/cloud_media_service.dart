@@ -1,8 +1,9 @@
 import 'dart:io';
-import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../models/track.dart';
 import 'cloud_provider.dart';
+import 'network_http_client.dart';
+import 'cached_file_download.dart';
 import 'yandex_disk_provider.dart';
 import 'google_drive_provider.dart';
 import 'secure_storage_service.dart';
@@ -12,6 +13,8 @@ import 'package:logging/logging.dart';
 
 class CloudMediaService {
   final _log = Logger('CloudMediaService');
+  final _client = NetworkHttpClient();
+  final _cacheDownloads = <String, Future<String>>{};
   late final SecureStorageService _secureStorage;
   late final List<CloudProvider> providers;
 
@@ -51,16 +54,42 @@ class CloudMediaService {
     return cacheDir;
   }
 
-  Future<String> downloadAndCacheTrack(Track track, {List<Track>? protectedTracks}) async {
-    _log.info('Requesting download for track: ${track.id} from ${track.cloudPath}');
+  Future<String> downloadAndCacheTrack(
+    Track track, {
+    List<Track>? protectedTracks,
+  }) async {
+    final pending = _cacheDownloads[track.id];
+    if (pending != null) return pending;
+    final download = _downloadAndCacheTrack(
+      track,
+      protectedTracks: protectedTracks,
+    );
+    _cacheDownloads[track.id] = download;
+    try {
+      return await download;
+    } finally {
+      _cacheDownloads.remove(track.id);
+    }
+  }
+
+  Future<String> _downloadAndCacheTrack(
+    Track track, {
+    List<Track>? protectedTracks,
+  }) async {
+    final cacheDir = await getCacheDir();
+    final file = File('${cacheDir.path}/${track.id}');
+    if (await file.exists() && await file.length() > 0) return file.path;
+    _log.info(
+      'Requesting download for track: ${track.id} from ${track.cloudPath}',
+    );
     // Determine provider from cloudPath if possible, or assume format "providerId://path"
     // Since previous track definition just had "cloudPath", let's define a convention:
     // cloudPath will be formatted as: "providerId://<actual_path>"
 
     final schemeIdx = track.cloudPath.indexOf('://');
     if (schemeIdx == -1) {
-        _log.severe('Invalid cloudPath URI format: ${track.cloudPath}');
-        throw Exception('Invalid cloudPath URI format: ${track.cloudPath}');
+      _log.severe('Invalid cloudPath URI format: ${track.cloudPath}');
+      throw Exception('Invalid cloudPath URI format: ${track.cloudPath}');
     }
 
     final providerId = track.cloudPath.substring(0, schemeIdx);
@@ -79,7 +108,9 @@ class CloudMediaService {
     } on CloudFileNotFoundException {
       _log.severe('File not found in cloud, removing globally: ${track.id}');
       await HiveStorageService().deleteTrackGlobally(track.id);
-      throw TrackRemovedException('Track "${track.title}" was removed from the cloud and has been deleted from your library.');
+      throw TrackRemovedException(
+        'Track "${track.title}" was removed from the cloud and has been deleted from your library.',
+      );
     }
 
     if (downloadUrl == null) {
@@ -87,39 +118,23 @@ class CloudMediaService {
       throw Exception('No download URL obtained');
     }
 
-    final cacheDir = await getCacheDir();
-
-    final file = File('${cacheDir.path}/${track.id}');
-    if (!file.existsSync()) {
-      _log.info('Downloading file to cache: ${file.path}');
-      // Download actual file using streaming
-      final request = http.Request('GET', Uri.parse(downloadUrl))
-        ..headers.addAll(await provider.getDownloadHeaders());
-      final response = await request.send();
-
-      if (response.statusCode == 200) {
-        final sink = file.openWrite();
-        await response.stream.pipe(sink);
-        await sink.close();
-        _log.info('Download complete: ${file.path}');
-
-        await _cleanupCache(cacheDir, protectedTracks: protectedTracks);
-      } else if (response.statusCode == 404) {
-        _log.severe('Download URL returned 404, removing globally: ${track.id}');
-        await HiveStorageService().deleteTrackGlobally(track.id);
-        throw TrackRemovedException('Track "${track.title}" was removed from the cloud and has been deleted from your library.');
-      } else {
-        _log.severe('Failed to download track: ${response.statusCode}');
-        throw Exception('Failed to download track: ${response.statusCode}');
-      }
-    } else {
-      _log.info('File already in cache: ${file.path}');
-    }
+    _log.info('Downloading file to cache: ${file.path}');
+    await downloadCacheFile(
+      client: _client,
+      url: Uri.parse(downloadUrl),
+      destination: file,
+      headers: await provider.getDownloadHeaders(),
+    );
+    _log.info('Download complete: ${file.path}');
+    await _cleanupCache(cacheDir, protectedTracks: protectedTracks);
 
     return file.path;
   }
 
-  Future<void> _cleanupCache(Directory cacheDir, {List<Track>? protectedTracks}) async {
+  Future<void> _cleanupCache(
+    Directory cacheDir, {
+    List<Track>? protectedTracks,
+  }) async {
     _log.info('Running cache cleanup...');
     try {
       final hive = HiveStorageService();
@@ -136,7 +151,9 @@ class CloudMediaService {
         }
       }
 
-      _log.info('Current cache size: $totalSize, Max allowed: $maxCacheSizeBytes');
+      _log.info(
+        'Current cache size: $totalSize, Max allowed: $maxCacheSizeBytes',
+      );
 
       if (totalSize <= maxCacheSizeBytes) {
         _log.info('Cache size is within limits.');
@@ -147,11 +164,15 @@ class CloudMediaService {
 
       // Get all tracks from Hive to determine lastAccessed
       final allTracks = hive.tracksBox.values.toList();
-      var cachedTracks = allTracks.where((t) => t.localCachePath != null).toList();
+      var cachedTracks = allTracks
+          .where((t) => t.localCachePath != null)
+          .toList();
 
       if (protectedTracks != null && protectedTracks.isNotEmpty) {
         final protectedIds = protectedTracks.map((t) => t.id).toSet();
-        cachedTracks = cachedTracks.where((t) => !protectedIds.contains(t.id)).toList();
+        cachedTracks = cachedTracks
+            .where((t) => !protectedIds.contains(t.id))
+            .toList();
       }
 
       // Sort tracks by lastAccessed (oldest first)
@@ -174,7 +195,9 @@ class CloudMediaService {
             final fileSize = file.lengthSync();
             file.deleteSync();
             totalSize -= fileSize;
-            _log.info('Deleted cached file for track ${track.id}: $localPath, Reclaimed $fileSize bytes');
+            _log.info(
+              'Deleted cached file for track ${track.id}: $localPath, Reclaimed $fileSize bytes',
+            );
 
             // Clear local cache path in Hive
             track.localCachePath = null;
@@ -202,7 +225,7 @@ class CloudMediaService {
   Future<String> getDownloadUrlForTrack(Track track) async {
     final schemeIdx = track.cloudPath.indexOf('://');
     if (schemeIdx == -1) {
-        throw Exception('Invalid cloudPath URI format: ${track.cloudPath}');
+      throw Exception('Invalid cloudPath URI format: ${track.cloudPath}');
     }
 
     final providerId = track.cloudPath.substring(0, schemeIdx);
@@ -218,7 +241,9 @@ class CloudMediaService {
       downloadUrl = await provider.getDownloadUrl(path);
     } on CloudFileNotFoundException {
       await HiveStorageService().deleteTrackGlobally(track.id);
-      throw TrackRemovedException('Track "${track.title}" was removed from the cloud and has been deleted from your library.');
+      throw TrackRemovedException(
+        'Track "${track.title}" was removed from the cloud and has been deleted from your library.',
+      );
     }
 
     if (downloadUrl == null) {

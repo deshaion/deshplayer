@@ -439,6 +439,7 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                   }
 
                                   return ListView.separated(
+                                    key: ValueKey(_searchQuery),
                                     padding: const EdgeInsets.all(16.0),
                                     itemCount: filteredTrackIds.length,
                                     separatorBuilder: (context, index) => const Divider(),

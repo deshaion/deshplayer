@@ -37,6 +37,29 @@ void main() {
   });
 
   test(
+    'recovers the file metadata lookup after a transient Android DNS error',
+    () async {
+      var attempts = 0;
+      final provider = GoogleDriveProvider(
+        storage,
+        client: MockClient((request) async {
+          attempts++;
+          if (attempts == 1) {
+            throw http.ClientException(
+              "SocketException: Failed host lookup: 'www.googleapis.com'",
+              request.url,
+            );
+          }
+          return data({'id': 'song', 'mimeType': 'audio/mpeg'});
+        }),
+      );
+      final url = await provider.getDownloadUrl('/@song~Song.mp3');
+      expect(Uri.parse(url!).queryParameters['alt'], 'media');
+      expect(attempts, 2);
+    },
+  );
+
+  test(
     'verifies credentials before saving them and removes them on disconnect',
     () async {
       final provider = GoogleDriveProvider(
