@@ -32,8 +32,6 @@ jobs:
             runner: windows-2022
           - target: android
             runner: ubuntu-24.04
-          - target: macos
-            runner: macos-15
     defaults:
       run:
         shell: bash
