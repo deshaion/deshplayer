@@ -2,6 +2,9 @@
 
 # DeshPlayer
 
+Read the [Privacy Policy](docs/PRIVACY.md) for details about Google Drive access,
+local storage, and data sharing.
+
 ## License
 
 DeshPlayer is source available under the [PolyForm Perimeter License 1.0.1](LICENSE.md). The license permits use, modification, and distribution, but does not permit providing others a product that competes with DeshPlayer. See the [required copyright notice](NOTICE).
@@ -169,20 +172,6 @@ flutter build macos
 ```
 
 *Note: You may encounter errors related to the target OS version during the build process. If this happens, you will need to open the `macos/Runner.xcworkspace` in Xcode and adjust the minimum deployment target.*
-
-## Changing the Version Number Before Building
-
-To change the version number of the application before creating a build, you need to modify the `version` field in the `pubspec.yaml` file located in the root of the project.
-
-The `version` field looks like this:
-```yaml
-version: 1.0.0+1
-```
-
-* **`1.0.0`**: This is the version number. Update this for releases (e.g., `1.0.1` or `1.1.0`).
-* **`+1`**: This is the build number. Increment this for every new build you upload to an app store or distribute, even if the version number remains the same.
-
-After updating the `pubspec.yaml`, make sure to run `flutter pub get` before running your build commands (e.g., `flutter build apk`).
 
 ## Connecting cloud providers
 
