@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import '../models/duration_adapter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/playlist.dart';
@@ -30,6 +31,7 @@ class HiveStorageService {
   late Box<AppSettings> settingsBox;
   late Box<String> historyBox;
   late Box<AppLogRecord> logsBox;
+  late Box<String> queueSessionBox;
 
   Future<void> init() async {
     _log.info('Initializing Hive storage');
@@ -62,6 +64,8 @@ class HiveStorageService {
     settingsBox = await Hive.openBox<AppSettings>(settingsBoxName);
     historyBox = await Hive.openBox<String>(historyBoxName);
     logsBox = await Hive.openBox<AppLogRecord>(logsBoxName);
+
+    queueSessionBox = await Hive.openBox<String>('queue_session');
 
     // Seed mock data if empty
     if (playlistsBox.isEmpty && tracksBox.isEmpty) {
@@ -113,6 +117,14 @@ class HiveStorageService {
   // Playback State
   PlaybackState? getPlaybackState(String playlistId) => playbackStateBox.get(playlistId);
   Future<void> savePlaybackState(PlaybackState state) => playbackStateBox.put(state.playlistId, state);
+
+  Map<String, dynamic>? getQueueSession() {
+    final value = queueSessionBox.get('session');
+    return value == null ? null : jsonDecode(value) as Map<String, dynamic>;
+  }
+
+  Future<void> saveQueueSession(Map<String, dynamic> session) =>
+      queueSessionBox.put('session', jsonEncode(session));
 
   // Settings
   AppSettings getSettings() => settingsBox.get('app_settings') ?? AppSettings();

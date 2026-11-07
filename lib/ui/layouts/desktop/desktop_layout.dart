@@ -455,7 +455,7 @@ class _DesktopLayoutState extends State<DesktopLayout> {
                                         playlist: selectedPlaylist,
                                         isSelected: isSelected,
                                         onTap: () {
-                                           player.playTrackDirectly(track);
+                                           player.playTrackDirectly(track, playlist: selectedPlaylist);
                                         },
                                         onRemoveFromPlaylist: () {
                                            setState(() {

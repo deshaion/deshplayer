@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/widgets.dart';
 import '../models/playlist.dart';
 import '../models/track.dart';
+import '../models/queue_entry.dart';
 import '../models/playback_state.dart' as pstate;
 import '../models/settings.dart';
 import '../models/exceptions.dart';
@@ -26,14 +27,16 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Duration _duration = Duration.zero;
 
   // Queue
-  List<Track> _queue = [];
-  final List<Track> _history = [];
+  List<QueueEntry> _queue = [];
+  String? _currentTrackPlaylistId;
+  bool _sessionReady = false;
+  final List<QueueEntry> _history = [];
 
   // Isolated queue for Book Mode
-  List<Track>? _savedRegularQueue;
+  List<QueueEntry>? _savedRegularQueue;
 
   List<Track> get _protectedTracks {
-    final list = List<Track>.from(_queue);
+    final list = _queue.map((entry) => entry.track).toList();
     if (_currentTrack != null) list.add(_currentTrack!);
     return list;
   }
@@ -54,15 +57,23 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool _isAdvancingToNextTrack = false;
 
   bool _isBackground = false;
+  final List<StreamSubscription<dynamic>> _subscriptions = [];
 
-  PlayerProvider(this._storageService) {
-    _audioService = AudioPlayerService(_storageService);
+  late final Future<void> initialized;
+
+  PlayerProvider(this._storageService, {AudioPlayerService? audioService}) {
+    _audioService = audioService ?? AudioPlayerService(_storageService);
     WidgetsBinding.instance.addObserver(this);
-    _init();
+    initialized = _init();
   }
 
   @override
   void dispose() {
+    _saveCurrentState();
+    for (final subscription in _subscriptions) {
+      unawaited(subscription.cancel());
+    }
+    unawaited(_errorController.close());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -70,6 +81,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
+      _saveCurrentState();
       _isBackground = true;
     } else if (state == AppLifecycleState.resumed) {
       _isBackground = false;
@@ -86,12 +98,15 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Playlist? get currentPlaylist => _currentPlaylist;
   Playlist? get playingPlaylist => _playingPlaylist;
+  Playlist? get currentTrackPlaylist =>
+      _storageService.getPlaylist(_currentTrackPlaylistId ?? '');
   Track? get currentTrack => _currentTrack;
   AppSettings get settings => _settings;
   bool get isPlaying => _isPlaying;
   Duration get position => _position;
   Duration get duration => _duration;
-  List<Track> get queue => _queue;
+  List<Track> get queue =>
+      List.unmodifiable(_queue.map((entry) => entry.track));
   List<Track> get playbackHistory => _storageService
       .getHistory()
       .reversed
@@ -109,14 +124,46 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _settings = _storageService.getSettings();
     _audioService.setVolume(_settings.volume);
 
-    // Restore state
-    if (_settings.lastActivePlaylistId != null) {
+    final session = _storageService.getQueueSession();
+    if (session != null) {
+      _playingPlaylist = _storageService.getPlaylist(
+        session['playlistId'] as String? ?? '',
+      );
+      _currentPlaylist = _playingPlaylist;
+      _queue = _restoreEntries(session['queue']);
+      _savedRegularQueue = session['savedRegularQueue'] == null
+          ? null
+          : _restoreEntries(session['savedRegularQueue']);
+      _history.addAll(_restoreEntries(session['history']));
+      _currentTrack = _storageService.getTrack(
+        session['currentTrackId'] as String? ?? '',
+      );
+      _currentTrackPlaylistId = session['currentTrackPlaylistId'] as String?;
+      _position = Duration(milliseconds: session['position'] as int? ?? 0);
+      _accumulatedTime = Duration(
+        milliseconds: session['accumulatedTime'] as int? ?? 0,
+      );
+      _statsRecorded = session['statsRecorded'] as bool? ?? false;
+      _lastReportedPosition = _position;
+      if (_currentTrack != null) {
+        try {
+          await _audioService.playTrack(_currentTrack!, startPaused: true);
+          await _audioService.seek(_position);
+        } catch (e) {
+          _log.warning('Could not restore queued playback', e);
+        }
+      }
+    }
+
+    // Restore legacy state when no queue snapshot exists.
+    if (session == null && _settings.lastActivePlaylistId != null) {
       final activePlaylist = _storageService.getPlaylist(
         _settings.lastActivePlaylistId!,
       );
       if (activePlaylist != null) {
         _playingPlaylist = activePlaylist;
         _currentPlaylist = activePlaylist;
+        _currentTrackPlaylistId = activePlaylist.id;
         final state = _storageService.getPlaybackState(activePlaylist.id);
         if (state != null && state.currentTrackId != null) {
           _currentTrack = _storageService.getTrack(state.currentTrackId!);
@@ -153,72 +200,80 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
 
-    _audioService.audioHandler.playbackState.listen((state) {
-      _isPlaying = state.playing;
-      notifyListeners();
+    _sessionReady = true;
 
-      if (state.playing &&
-          state.processingState == AudioProcessingState.ready) {
-        _consecutiveFailures = 0; // Reset failures on successful playback
-      }
+    _subscriptions.add(
+      _audioService.audioHandler.playbackState.listen((state) {
+        _isPlaying = state.playing;
+        notifyListeners();
 
-      if (state.processingState == AudioProcessingState.completed) {
-        unawaited(playNext(reason: 'playback completed'));
-      }
+        if (state.playing &&
+            state.processingState == AudioProcessingState.ready) {
+          _consecutiveFailures = 0; // Reset failures on successful playback
+        }
 
-      if (state.processingState == AudioProcessingState.error) {
-        _handlePlaybackError(state.errorMessage ?? "Unknown error");
-      }
-    });
+        if (state.processingState == AudioProcessingState.completed) {
+          unawaited(playNext(reason: 'playback completed'));
+        }
+
+        if (state.processingState == AudioProcessingState.error) {
+          _handlePlaybackError(state.errorMessage ?? "Unknown error");
+        }
+      }),
+    );
 
     Duration lastProcessedPosition = Duration.zero;
 
-    AudioService.position.listen((pos) {
-      final step = (pos - lastProcessedPosition).inMilliseconds.abs();
+    _subscriptions.add(
+      _audioService.positionStream.listen((pos) {
+        final step = (pos - lastProcessedPosition).inMilliseconds.abs();
 
-      // Throttle updates: Skip if the update is less than 1 second (1000ms)
-      if (step < 1000 && step > 0) {
-        return;
-      }
-      lastProcessedPosition = pos;
+        // Throttle updates: Skip if the update is less than 1 second (1000ms)
+        if (step < 1000 && step > 0) {
+          return;
+        }
+        lastProcessedPosition = pos;
 
-      _position = pos;
-      notifyListeners();
+        _position = pos;
+        notifyListeners();
 
-      if (_currentPlaylist != null && _currentTrack != null) {
-        // Calculate time delta
-        final diff = pos - _lastReportedPosition;
-        if (diff > Duration.zero && diff < const Duration(seconds: 5)) {
-          _accumulatedTime += diff;
+        if (_currentTrack != null && _isPlaying) {
+          // Calculate time delta
+          final diff = pos - _lastReportedPosition;
+          if (diff > Duration.zero && diff < const Duration(seconds: 5)) {
+            _accumulatedTime += diff;
 
-          // Check if we should record a play
-          if (!_statsRecorded &&
-              _currentTrack!.duration.inSeconds > 0 &&
-              _accumulatedTime.inSeconds >=
-                  _currentTrack!.duration.inSeconds / 2) {
-            if (_playingPlaylist?.excludeFromStatistics != true) {
-              StatsService().recordPlay(_currentTrack!);
+            // Check if we should record a play
+            if (!_statsRecorded &&
+                _currentTrack!.duration.inSeconds > 0 &&
+                _accumulatedTime.inSeconds >=
+                    _currentTrack!.duration.inSeconds / 2) {
+              if (currentTrackPlaylist?.excludeFromStatistics != true) {
+                StatsService().recordPlay(_currentTrack!);
+              }
+              _statsRecorded = true;
             }
-            _statsRecorded = true;
           }
         }
-      }
 
-      _lastReportedPosition = pos;
+        _lastReportedPosition = pos;
 
-      // Throttle database writes to every 20 seconds
-      if (DateTime.now().difference(_lastSaveTime).inSeconds >= 20) {
-        _saveCurrentState();
-        _lastSaveTime = DateTime.now();
-      }
-    });
+        // Throttle database writes to every 20 seconds
+        if (DateTime.now().difference(_lastSaveTime).inSeconds >= 20) {
+          _saveCurrentState();
+          _lastSaveTime = DateTime.now();
+        }
+      }),
+    );
 
-    _audioService.audioHandler.mediaItem.listen((item) {
-      if (item != null && item.duration != null) {
-        _duration = item.duration!;
-        notifyListeners();
-      }
-    });
+    _subscriptions.add(
+      _audioService.audioHandler.mediaItem.listen((item) {
+        if (item != null && item.duration != null) {
+          _duration = item.duration!;
+          notifyListeners();
+        }
+      }),
+    );
 
     notifyListeners();
   }
@@ -226,15 +281,23 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   void _fillQueue() {
     Playlist? targetPlaylist = _playingPlaylist;
 
-    if (targetPlaylist == null) return;
+    if (targetPlaylist == null) {
+      _persistSession();
+      return;
+    }
 
     // We want to maintain a queue of upcoming tracks.
     // Let's keep at least 5 tracks in the queue.
     int targetQueueSize = 5;
 
     if (_queue.length < targetQueueSize) {
-      final ids = targetPlaylist.trackIds;
-      if (ids.isEmpty) return;
+      final ids = targetPlaylist.trackIds
+          .where((id) => _storageService.getTrack(id) != null)
+          .toList();
+      if (ids.isEmpty) {
+        _persistSession();
+        return;
+      }
 
       if (_settings.shuffle && !targetPlaylist.isBookMode) {
         final random = Random();
@@ -242,7 +305,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
           final nextId = ids[random.nextInt(ids.length)];
           final track = _storageService.getTrack(nextId);
           if (track != null) {
-            _queue.add(track);
+            _queue.add(QueueEntry(track, playlistId: targetPlaylist.id));
           }
         }
       } else {
@@ -255,7 +318,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
         // Start searching for next tracks
         // if queue is not empty, start from the last track in the queue
         if (_queue.isNotEmpty) {
-          final lastQueueTrackId = _queue.last.id;
+          final lastQueueTrackId = _queue.last.track.id;
           final idx = ids.indexOf(lastQueueTrackId);
           if (idx != -1) {
             startIdx = idx;
@@ -274,7 +337,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
           }
           final track = _storageService.getTrack(ids[startIdx]);
           if (track != null) {
-            _queue.add(track);
+            _queue.add(QueueEntry(track, playlistId: targetPlaylist.id));
           }
         }
       }
@@ -282,25 +345,37 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     // Pre-cache next 2 tracks
     for (int i = 0; i < min(2, _queue.length); i++) {
-      _audioService.preCacheTrack(_queue[i], protectedTracks: _protectedTracks);
+      _audioService.preCacheTrack(
+        _queue[i].track,
+        protectedTracks: _protectedTracks,
+      );
     }
 
+    _persistSession();
     notifyListeners();
   }
 
-  void playNextInQueue(Track track) {
-    _queue.insert(0, track);
+  void playNextInQueue(Track track, {Playlist? playlist}) {
+    _queue.insert(0, QueueEntry(track, playlistId: playlist?.id));
     _audioService.preCacheTrack(track, protectedTracks: _protectedTracks);
+    _persistSession();
     notifyListeners();
   }
 
-  void addToQueue(Track track) {
-    _queue.add(track);
+  void addToQueue(Track track, {Playlist? playlist}) {
+    _queue.add(QueueEntry(track, playlistId: playlist?.id));
+    _persistSession();
     notifyListeners();
   }
 
   void removeFromQueue(Track track) {
-    _queue.remove(track);
+    final index = _queue.indexWhere((entry) => identical(entry.track, track));
+    if (index != -1) removeFromQueueAt(index);
+  }
+
+  void removeFromQueueAt(int index) {
+    if (index < 0 || index >= _queue.length) return;
+    _queue.removeAt(index);
     _fillQueue();
     notifyListeners();
   }
@@ -315,8 +390,12 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _queue.insert(newIndex, track);
 
     for (int i = 0; i < min(2, _queue.length); i++) {
-      _audioService.preCacheTrack(_queue[i], protectedTracks: _protectedTracks);
+      _audioService.preCacheTrack(
+        _queue[i].track,
+        protectedTracks: _protectedTracks,
+      );
     }
+    _persistSession();
     notifyListeners();
   }
 
@@ -335,6 +414,8 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
         // When clicking resume, it should start playing.
         await setActivePlaylist(playlist, startTrack: track);
+        _accumulatedTime = state.accumulatedTime;
+        _statsRecorded = state.statsRecorded;
         await seek(state.position);
       }
     } else if (playlist.trackIds.isNotEmpty) {
@@ -355,6 +436,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     Track? startTrack,
     bool startPaused = false,
   }) async {
+    _saveCurrentState();
     _settings.lastActivePlaylistId = playlist.id;
     _storageService.saveSettings(_settings);
 
@@ -362,11 +444,11 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     final isBookMode = playlist.isBookMode;
 
     if (isBookMode && !wasBookMode) {
-      _savedRegularQueue = List<Track>.from(_queue);
+      _savedRegularQueue = List<QueueEntry>.from(_queue);
       _queue.clear();
     } else if (!isBookMode && wasBookMode) {
       if (_savedRegularQueue != null) {
-        _queue = List<Track>.from(_savedRegularQueue!);
+        _queue = List<QueueEntry>.from(_savedRegularQueue!);
         _savedRegularQueue = null;
       } else {
         _queue.clear();
@@ -379,13 +461,19 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     if (startTrack != null) {
       if (_currentTrack != null && _currentTrack?.id != startTrack.id) {
-        _history.add(_currentTrack!);
+        _history.add(
+          QueueEntry(_currentTrack!, playlistId: _currentTrackPlaylistId),
+        );
         _resetStatsForNewTrack();
       }
       _currentTrack = startTrack;
+      _currentTrackPlaylistId = playlist.id;
+      _resetStatsForNewTrack();
+      _position = Duration.zero;
     }
 
     _fillQueue();
+    _saveCurrentState();
     notifyListeners();
 
     if (startTrack != null && _currentTrack != null) {
@@ -411,10 +499,15 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   void _resetStatsForNewTrack() {
     _accumulatedTime = Duration.zero;
     _statsRecorded = false;
+    _position = Duration.zero;
     _lastReportedPosition = Duration.zero;
   }
 
-  Future<void> playTrackDirectly(Track track) async {
+  Future<void> playTrackDirectly(Track track, {Playlist? playlist}) async {
+    if (playlist != null && playlist.id != _playingPlaylist?.id) {
+      await setActivePlaylist(playlist, startTrack: track);
+      return;
+    }
     if (_playingPlaylist == null) {
       if (_currentPlaylist != null) {
         await setActivePlaylist(_currentPlaylist!, startTrack: track);
@@ -423,10 +516,15 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     if (_currentTrack != null && _currentTrack?.id != track.id) {
-      _history.add(_currentTrack!);
+      _history.add(
+        QueueEntry(_currentTrack!, playlistId: _currentTrackPlaylistId),
+      );
       _resetStatsForNewTrack();
     }
     _currentTrack = track;
+    _currentTrackPlaylistId = playlist?.id;
+    _position = Duration.zero;
+    _saveCurrentState();
 
     notifyListeners();
 
@@ -473,6 +571,8 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (_currentTrack != null) {
         // Repeat One (2) - just replay the current track
         if (_settings.repeatMode == 2) {
+          _resetStatsForNewTrack();
+          _saveCurrentState();
           await _audioService.seek(Duration.zero);
           await _audioService.playTrack(
             _currentTrack!,
@@ -480,15 +580,18 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
           );
           return;
         }
-        _history.add(_currentTrack!);
+        _history.add(
+          QueueEntry(_currentTrack!, playlistId: _currentTrackPlaylistId),
+        );
       }
 
       if (_queue.isNotEmpty) {
-        final nextTrack = _queue.removeAt(0);
-        if (_currentTrack?.id != nextTrack.id) {
-          _resetStatsForNewTrack();
-        }
+        final nextEntry = _queue.removeAt(0);
+        final nextTrack = nextEntry.track;
+        _resetStatsForNewTrack();
         _currentTrack = nextTrack;
+        _currentTrackPlaylistId = nextEntry.playlistId;
+        _position = Duration.zero;
         _fillQueue();
         notifyListeners();
         try {
@@ -520,13 +623,20 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> playPrevious() async {
     if (_history.isNotEmpty) {
       if (_currentTrack != null) {
-        _queue.insert(0, _currentTrack!);
+        _queue.insert(
+          0,
+          QueueEntry(_currentTrack!, playlistId: _currentTrackPlaylistId),
+        );
       }
-      final prevTrack = _history.removeLast();
+      final prevEntry = _history.removeLast();
+      final prevTrack = prevEntry.track;
+      _currentTrackPlaylistId = prevEntry.playlistId;
+      _position = Duration.zero;
       if (_currentTrack?.id != prevTrack.id) {
         _resetStatsForNewTrack();
       }
       _currentTrack = prevTrack;
+      _saveCurrentState();
       notifyListeners();
       try {
         await _audioService.playTrack(
@@ -548,6 +658,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
             _resetStatsForNewTrack();
           }
           _currentTrack = prevTrack;
+          _currentTrackPlaylistId = _playingPlaylist!.id;
           _queue.clear();
           _fillQueue();
           notifyListeners();
@@ -597,6 +708,8 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> seek(Duration position) async {
     await _audioService.seek(position);
+    _position = position;
+    _lastReportedPosition = position;
     _saveCurrentState(); // Save after seeking
   }
 
@@ -607,8 +720,39 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  List<QueueEntry> _restoreEntries(dynamic data) =>
+      (data as List<dynamic>? ?? [])
+          .map(
+            (value) => QueueEntry.fromJson(
+              Map<String, dynamic>.from(value as Map),
+              _storageService.getTrack,
+            ),
+          )
+          .whereType<QueueEntry>()
+          .toList();
+
+  void _persistSession() {
+    if (!_sessionReady) return;
+    unawaited(
+      _storageService.saveQueueSession({
+        'playlistId': _playingPlaylist?.id,
+        'currentTrackId': _currentTrack?.id,
+        'currentTrackPlaylistId': _currentTrackPlaylistId,
+        'position': _position.inMilliseconds,
+        'accumulatedTime': _accumulatedTime.inMilliseconds,
+        'statsRecorded': _statsRecorded,
+        'queue': _queue.map((entry) => entry.toJson()).toList(),
+        'savedRegularQueue': _savedRegularQueue
+            ?.map((entry) => entry.toJson())
+            .toList(),
+        'history': _history.map((entry) => entry.toJson()).toList(),
+      }),
+    );
+  }
+
   void _saveCurrentState() {
-    final targetPlaylist = _playingPlaylist;
+    _persistSession();
+    final targetPlaylist = currentTrackPlaylist;
 
     if (targetPlaylist != null && _currentTrack != null) {
       final state = pstate.PlaybackState(

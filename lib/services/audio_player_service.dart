@@ -16,6 +16,8 @@ class AudioPlayerService {
 
   late final DeshAudioHandler audioHandler;
 
+  Stream<Duration> get positionStream => AudioService.position;
+
   AudioPlayerService(this.storageService);
 
   Future<void> init({

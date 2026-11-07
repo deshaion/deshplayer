@@ -53,7 +53,7 @@ class TrackListTile extends StatelessWidget {
     if (!context.mounted) return;
 
     if (value == 'play_next') {
-      player.playNextInQueue(track);
+      player.playNextInQueue(track, playlist: playlist);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -62,7 +62,7 @@ class TrackListTile extends StatelessWidget {
         ),
       );
     } else if (value == 'queue') {
-      player.addToQueue(track);
+      player.addToQueue(track, playlist: playlist);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(

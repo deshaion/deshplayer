@@ -151,7 +151,7 @@ class _QueuePageState extends State<QueuePage> {
                                 trailing: IconButton(
                                   icon: const Icon(Icons.close),
                                   onPressed: () {
-                                    player.removeFromQueue(track);
+                                    player.removeFromQueueAt(index);
                                   },
                                 ),
                               ),

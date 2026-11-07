@@ -592,7 +592,7 @@ class _MobileLayoutState extends State<MobileLayout> {
                                 playlist: selectedPlaylist,
                                 isSelected: isSelected,
                                 onTap: () {
-                                  player.playTrackDirectly(track);
+                                  player.playTrackDirectly(track, playlist: selectedPlaylist);
                                 },
                                 onRemoveFromPlaylist: () {
                                   setState(() {
