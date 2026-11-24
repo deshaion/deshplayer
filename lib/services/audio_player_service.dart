@@ -16,6 +16,8 @@ class AudioPlayerService {
 
   late final DeshAudioHandler audioHandler;
 
+  Stream<Duration> get positionStream => AudioService.position;
+
   AudioPlayerService(this.storageService);
 
   Future<void> init({
@@ -119,7 +121,6 @@ class AudioPlayerService {
       await storageService.saveTrack(track);
 
       _log.info('Started playback for track: ${track.id}');
-      storageService.addToHistory(track.id);
     } catch (e, stackTrace) {
       track.localCachePath = previousLocalCachePath;
       _log.severe('Error playing track: ${track.id}', e, stackTrace);

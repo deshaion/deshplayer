@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../models/track.dart';
+import '../../../models/queue_entry.dart';
 import '../../../services/player_provider.dart';
 
 class QueuePage extends StatefulWidget {
@@ -16,7 +16,7 @@ class _QueuePageState extends State<QueuePage> {
   Future<void> _showHistoryTrackActions(
     BuildContext context,
     PlayerProvider player,
-    Track track,
+    QueueEntry entry,
   ) async {
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -47,11 +47,11 @@ class _QueuePageState extends State<QueuePage> {
 
     switch (action) {
       case 'play':
-        await player.playTrackDirectly(track);
+        await player.playHistoryEntry(entry);
       case 'next':
-        player.playNextInQueue(track);
+        await player.enqueue(entry, playNext: true);
       case 'end':
-        player.addToQueue(track);
+        await player.enqueue(entry);
     }
   }
 
@@ -60,7 +60,9 @@ class _QueuePageState extends State<QueuePage> {
     final player = context.watch<PlayerProvider>();
     final queue = player.queue;
     final currentTrack = player.currentTrack;
-    final history = player.playbackHistory;
+    final history = _showHistory
+        ? player.playbackHistory
+        : const <QueueEntry>[];
     final occurrenceCounts = <String, int>{};
     final queueKeys = queue.map((track) {
       final occurrence = occurrenceCounts.update(
@@ -90,7 +92,8 @@ class _QueuePageState extends State<QueuePage> {
                     padding: const EdgeInsets.only(bottom: 88),
                     itemCount: history.length,
                     itemBuilder: (context, index) {
-                      final track = history[index];
+                      final entry = history[index];
+                      final track = entry.track;
                       return ListTile(
                         leading: Text(
                           '${index + 1}',
@@ -99,7 +102,7 @@ class _QueuePageState extends State<QueuePage> {
                         title: Text(track.title ?? 'Unknown'),
                         subtitle: Text(track.artist ?? 'Unknown Artist'),
                         onTap: () {
-                          _showHistoryTrackActions(context, player, track);
+                          _showHistoryTrackActions(context, player, entry);
                         },
                       );
                     },
@@ -151,7 +154,7 @@ class _QueuePageState extends State<QueuePage> {
                                 trailing: IconButton(
                                   icon: const Icon(Icons.close),
                                   onPressed: () {
-                                    player.removeFromQueue(track);
+                                    player.removeFromQueueAt(index);
                                   },
                                 ),
                               ),

@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'dart:convert';
 import '../models/duration_adapter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/playlist.dart';
 import '../models/track.dart';
+import '../models/queue_entry.dart';
 import '../models/playback_state.dart';
 import '../models/settings.dart';
 import '../models/app_log_record.dart';
@@ -23,6 +25,7 @@ class HiveStorageService {
   static const String settingsBoxName = 'settings';
   static const String historyBoxName = 'history';
   static const String logsBoxName = 'logs';
+  static const String queuesBoxName = 'queues';
 
   late Box<Playlist> playlistsBox;
   late Box<Track> tracksBox;
@@ -30,6 +33,8 @@ class HiveStorageService {
   late Box<AppSettings> settingsBox;
   late Box<String> historyBox;
   late Box<AppLogRecord> logsBox;
+  late Box<String> queueSessionBox;
+  late Box<String> queuesBox;
 
   Future<void> init() async {
     _log.info('Initializing Hive storage');
@@ -62,6 +67,9 @@ class HiveStorageService {
     settingsBox = await Hive.openBox<AppSettings>(settingsBoxName);
     historyBox = await Hive.openBox<String>(historyBoxName);
     logsBox = await Hive.openBox<AppLogRecord>(logsBoxName);
+
+    queueSessionBox = await Hive.openBox<String>('queue_session');
+    queuesBox = await Hive.openBox<String>(queuesBoxName);
 
     // Seed mock data if empty
     if (playlistsBox.isEmpty && tracksBox.isEmpty) {
@@ -114,16 +122,58 @@ class HiveStorageService {
   PlaybackState? getPlaybackState(String playlistId) => playbackStateBox.get(playlistId);
   Future<void> savePlaybackState(PlaybackState state) => playbackStateBox.put(state.playlistId, state);
 
+  Map<String, dynamic>? getQueueSession() {
+    final value = queueSessionBox.get('session');
+    return value == null ? null : jsonDecode(value) as Map<String, dynamic>;
+  }
+
+  Future<void> saveQueueSession(Map<String, dynamic> session) =>
+      queueSessionBox.put('session', jsonEncode(session));
+
+  String _queueKey(String? bookPlaylistId) =>
+      bookPlaylistId == null ? 'regular' : 'book:$bookPlaylistId';
+
+  List<dynamic>? getQueue(String? bookPlaylistId) {
+    final value = queuesBox.get(_queueKey(bookPlaylistId));
+    return value == null ? null : jsonDecode(value) as List<dynamic>;
+  }
+
+  Future<void> saveQueue(
+    String? bookPlaylistId,
+    List<Map<String, dynamic>> entries,
+  ) => queuesBox.put(_queueKey(bookPlaylistId), jsonEncode(entries));
+
   // Settings
   AppSettings getSettings() => settingsBox.get('app_settings') ?? AppSettings();
   Future<void> saveSettings(AppSettings settings) => settingsBox.put('app_settings', settings);
 
-  // History (Storing Track IDs for simplicity)
-  List<String> getHistory() => historyBox.values.toList();
-  Future<void> addToHistory(String trackId) async {
-    // Basic history: append to end.
-    // You could limit the size here.
-    await historyBox.add(trackId);
+  List<QueueEntry> getHistory({Playlist? activePlaylist}) => historyBox.values
+      .toList()
+      .reversed
+      .map((value) {
+        if (value.startsWith('{')) {
+          return QueueEntry.fromJson(
+            jsonDecode(value) as Map<String, dynamic>,
+            getTrack,
+          );
+        }
+        // Legacy entries only stored a track ID. Prefer the active playlist
+        // for shared tracks, otherwise use a unique match if available.
+        final track = getTrack(value);
+        if (track == null) return null;
+        if (activePlaylist != null && activePlaylist.trackIds.contains(value)) {
+          return QueueEntry(track, playlistId: activePlaylist.id);
+        }
+        final matches = playlistsBox.values.where(
+          (playlist) => playlist.trackIds.contains(value),
+        );
+        return QueueEntry(track, playlistId: matches.singleOrNull?.id);
+      })
+      .whereType<QueueEntry>()
+      .toList();
+
+  Future<void> addToHistory(QueueEntry entry) async {
+    await historyBox.add(jsonEncode(entry.toJson()));
     if (historyBox.length > 100) {
       await historyBox.deleteAt(0); // keep history bounded
     }
