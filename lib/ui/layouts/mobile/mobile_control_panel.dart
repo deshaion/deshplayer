@@ -20,6 +20,7 @@ class _MobileControlPanelState extends State<MobileControlPanel> {
   Widget build(BuildContext context) {
     final player = context.watch<PlayerProvider>();
     final currentTrack = player.currentTrack;
+    final total = currentTrack?.duration ?? player.duration;
     final isPlaying = player.isPlaying;
     final isShuffle = player.settings.shuffle;
     final repeatMode = player.settings.repeatMode;
@@ -110,8 +111,11 @@ class _MobileControlPanelState extends State<MobileControlPanel> {
             SizedBox(height: 4.0 + 12.0 * expansion),
             // Seek Slider
             ProgressBar(
+              // Recreate the bar when the duration becomes known so it clamps
+              // the restored position against the new duration.
+              key: ValueKey(total > Duration.zero),
               progress: player.position,
-              total: currentTrack?.duration ?? player.duration,
+              total: total,
               onSeek: player.seek,
               barHeight: 4,
               thumbRadius: 6,
