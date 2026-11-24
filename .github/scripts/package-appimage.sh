@@ -40,7 +40,7 @@ done < <(find "$app_dir/usr/bin/lib" -type f -name '*.so*' -print0)
 export APPIMAGE_EXTRACT_AND_RUN=1
 export DEPLOY_GTK_VERSION=3
 export NO_STRIP=1
-export OUTPUT="$PWD/dist/Deshplayer-x86_64.AppImage"
+export OUTPUT="$PWD/dist/${ARTIFACT_PREFIX:-Deshplayer}-x86_64.AppImage"
 export PATH="$work_dir:$PATH"
 "$work_dir/linuxdeploy.AppImage" \
   --appdir "$app_dir" \
