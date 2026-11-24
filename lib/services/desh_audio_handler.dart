@@ -39,15 +39,21 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
 
-    session.interruptionEventStream.listen((event) {
+    session.interruptionEventStream.listen((event) async {
+      _log.info(
+        'Audio interruption: begin=${event.begin}, type=${event.type.name}, '
+        'playing=${playbackState.value.playing}, '
+        'resumePending=$_resumeAfterInterruption',
+      );
       if (event.begin) {
         switch (event.type) {
           case AudioInterruptionType.duck:
             break;
           case AudioInterruptionType.pause:
           case AudioInterruptionType.unknown:
-            _resumeAfterInterruption = playbackState.value.playing;
-            pause();
+            _resumeAfterInterruption =
+                !_isDisposed && playbackState.value.playing;
+            _setPaused(true);
             break;
         }
       } else {
@@ -55,8 +61,12 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
           case AudioInterruptionType.duck:
             break;
           case AudioInterruptionType.pause:
-            if (_resumeAfterInterruption) play();
+            final shouldResume = _resumeAfterInterruption;
             _resumeAfterInterruption = false;
+            if (shouldResume) {
+              _log.info('Resuming playback after audio interruption');
+              _setPaused(false);
+            }
             break;
           case AudioInterruptionType.unknown:
             _resumeAfterInterruption = false;
@@ -65,12 +75,37 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       }
     });
 
-    session.becomingNoisyEventStream.listen((_) {
-      // A route change such as wireless headphones disconnecting must never
-      // resume onto the device speaker when the interruption subsequently ends.
-      _resumeAfterInterruption = false;
-      pause();
+    session.becomingNoisyEventStream.listen((_) async {
+      _log.info(
+        'Audio output becoming noisy: playing=${playbackState.value.playing}, '
+        'resumePending=$_resumeAfterInterruption',
+      );
+      await pause();
     });
+
+    if (Platform.isAndroid) {
+      session.devicesChangedEventStream.listen((event) {
+        final removedOutputs = event.devicesRemoved
+            .where((device) => device.isOutput)
+            .map((device) => device.type.name)
+            .toSet();
+        if (removedOutputs.isEmpty) return;
+
+        final handle = _currentSoundHandle;
+        final engine = SoLoud.instance;
+        final voicePaused =
+            handle != null &&
+                engine.isInitialized &&
+                engine.getIsValidVoiceHandle(handle)
+            ? engine.getPause(handle)
+            : null;
+        _log.info(
+          'Android audio outputs removed: ${removedOutputs.join(', ')}, '
+          'playing=${playbackState.value.playing}, voicePaused=$voicePaused, '
+          'resumePending=$_resumeAfterInterruption',
+        );
+      });
+    }
   }
 
   Future<void> playTrack(
@@ -399,6 +434,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   }
 
   Future<void> _stopCurrentPlayback() async {
+    _resumeAfterInterruption = false;
     _isDisposed = true;
     _completionTimer?.cancel();
     _isCurrentFileDownloaded = false;
@@ -425,19 +461,35 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
 
   @override
   Future<void> play() async {
-    if (_currentSoundHandle != null &&
-        SoLoud.instance.getIsValidVoiceHandle(_currentSoundHandle!)) {
-      SoLoud.instance.setPause(_currentSoundHandle!, false);
-      _setPlayingState(true);
-    }
+    _log.info('Play requested: playing=${playbackState.value.playing}');
+    _resumeAfterInterruption = false;
+    _setPaused(false);
   }
 
   @override
   Future<void> pause() async {
-    if (_currentSoundHandle != null &&
-        SoLoud.instance.getIsValidVoiceHandle(_currentSoundHandle!)) {
-      SoLoud.instance.setPause(_currentSoundHandle!, true);
-      _setPlayingState(false);
+    _log.info(
+      'Pause requested: playing=${playbackState.value.playing}, '
+      'resumePending=$_resumeAfterInterruption',
+    );
+    _resumeAfterInterruption = false;
+    _setPaused(true);
+  }
+
+  @override
+  Future<void> click([MediaButton button = MediaButton.media]) {
+    _log.info(
+      'Media button: button=${button.name}, playing=${playbackState.value.playing}',
+    );
+    return super.click(button);
+  }
+
+  void _setPaused(bool paused) {
+    if (_isDisposed) return;
+    final handle = _currentSoundHandle;
+    if (handle != null && SoLoud.instance.getIsValidVoiceHandle(handle)) {
+      SoLoud.instance.setPause(handle, paused);
+      _setPlayingState(!paused);
     }
   }
 
