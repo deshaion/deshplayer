@@ -421,12 +421,17 @@ void main() {
         {'trackId': newest.id, 'playlistId': book.id},
       ],
     });
-    final player = await createPlayer();
+    var player = await createPlayer();
     await player.playHistoryEntry(player.playbackHistory.first);
-    final history = storage.getQueueSession()!['history'] as List<dynamic>;
-    expect(history.length, 100);
-    expect(history.first['trackId'], track.id);
-    expect(history[98]['trackId'], newest.id);
+    final session = storage.getQueueSession()!;
+    final previous = session['previousStack'] as List<dynamic>;
+    expect(session, isNot(contains('history')));
+    expect(previous.length, 100);
+    expect(previous.first['trackId'], track.id);
+    expect(previous[98]['trackId'], newest.id);
+    player.dispose();
+
+    player = await createPlayer();
     await player.playPrevious();
     await player.playPrevious();
     expect(player.currentTrack?.id, newest.id);

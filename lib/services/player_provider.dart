@@ -35,7 +35,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool _sessionReady = false;
   bool _audioReady = false;
   static const int _previousLimit = 100;
-  final _history = ListQueue<QueueEntry>();
+  final _previousStack = ListQueue<QueueEntry>();
 
   List<Track> get _protectedTracks {
     final list = _queue.map((entry) => entry.track).toList();
@@ -128,9 +128,13 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     if (session != null) {
       await _migrateQueues(session);
-      final history = session['history'] as List<dynamic>? ?? [];
-      _history.addAll(
-        _restoreEntries(history.skip(max(0, history.length - _previousLimit))),
+      final previous =
+          (session['previousStack'] ?? session['history']) as List<dynamic>? ??
+          [];
+      _previousStack.addAll(
+        _restoreEntries(
+          previous.skip(max(0, previous.length - _previousLimit)),
+        ),
       );
       _currentTrack = _storageService.getTrack(
         session['currentTrackId'] as String? ?? '',
@@ -157,7 +161,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     } else if (_playingPlaylist case final active?) {
       _sequenceTrackId = _currentTrackPlaylistId == active.id
           ? _currentTrack?.id
-          : _history
+          : _previousStack
                     .where((entry) => entry.playlistId == active.id)
                     .lastOrNull
                     ?.track
@@ -429,7 +433,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (bookId == _bookQueuePlaylistId) return false;
     _bookQueuePlaylistId = bookId;
     _queue = _restoreEntries(_storageService.getQueue(bookId));
-    _history.clear();
+    _previousStack.clear();
     return true;
   }
 
@@ -543,8 +547,10 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   void _rememberCurrentEntry() {
     final track = _currentTrack;
     if (track == null) return;
-    _history.addLast(QueueEntry(track, playlistId: _currentTrackPlaylistId));
-    if (_history.length > _previousLimit) _history.removeFirst();
+    _previousStack.addLast(
+      QueueEntry(track, playlistId: _currentTrackPlaylistId),
+    );
+    if (_previousStack.length > _previousLimit) _previousStack.removeFirst();
   }
 
   Future<void> _playCurrentTrack({bool startPaused = false}) async {
@@ -670,8 +676,8 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> playPrevious() async {
     if (!_audioReady) await initialized;
     final QueueEntry entry;
-    if (_history.isNotEmpty) {
-      entry = _history.removeLast();
+    if (_previousStack.isNotEmpty) {
+      entry = _previousStack.removeLast();
     } else {
       final active = _playingPlaylist;
       if (active == null || _currentTrack == null) return;
@@ -802,7 +808,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
         'position': _position.inMilliseconds,
         'accumulatedTime': _accumulatedTime.inMilliseconds,
         'statsRecorded': _statsRecorded,
-        'history': _history.map((entry) => entry.toJson()).toList(),
+        'previousStack': _previousStack.map((entry) => entry.toJson()).toList(),
       }),
     );
   }
