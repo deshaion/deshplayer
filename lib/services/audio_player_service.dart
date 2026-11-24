@@ -121,7 +121,6 @@ class AudioPlayerService {
       await storageService.saveTrack(track);
 
       _log.info('Started playback for track: ${track.id}');
-      storageService.addToHistory(track.id);
     } catch (e, stackTrace) {
       track.localCachePath = previousLocalCachePath;
       _log.severe('Error playing track: ${track.id}', e, stackTrace);

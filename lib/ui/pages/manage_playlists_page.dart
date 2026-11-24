@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../services/hive_storage_service.dart';
+import '../../services/player_provider.dart';
 import '../../models/playlist.dart';
 import '../components/playlist_dialogs.dart';
 import '../components/slashed_icon.dart';
@@ -70,9 +72,11 @@ class _ManagePlaylistsPageState extends State<ManagePlaylistsPage> {
   }
 
   Future<void> _toggleBookMode(Playlist playlist) async {
-    playlist.isBookMode = !playlist.isBookMode;
-    await HiveStorageService().savePlaylist(playlist);
-    _loadPlaylists();
+    await context.read<PlayerProvider>().setBookMode(
+      playlist,
+      !playlist.isBookMode,
+    );
+    if (mounted) _loadPlaylists();
   }
 
   String _formatDuration(Duration duration) {
