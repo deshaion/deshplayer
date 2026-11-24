@@ -32,11 +32,22 @@ jobs:
             runner: windows-2022
           - target: android
             runner: ubuntu-24.04
+          - target: macos
+            runner: macos-15
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set versioned artifact prefix
+        run: |
+          version=$(awk '/^version:/ { sub(/^version:[[:space:]]*/, ""); split($0, parts, /[+[:space:]]/); print parts[1]; exit }' pubspec.yaml)
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo 'Expected an app version in pubspec.yaml.' >&2
+            exit 1
+          fi
+          echo "ARTIFACT_PREFIX=deshplayer-$version" >> "$GITHUB_ENV"
 
       - name: Install Linux build dependencies
         if: matrix.target == 'linux'
@@ -81,7 +92,7 @@ jobs:
         run: |
           flutter build apk --release --no-pub
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/Deshplayer-android.apk
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/$ARTIFACT_PREFIX-android.apk"
           if [[ -f android/key.properties ]]; then
             echo 'Android: signed with the configured keystore.' >> "$GITHUB_STEP_SUMMARY"
           else
@@ -105,7 +116,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dist/Deshplayer-windows-x64.zip
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath "dist/$env:ARTIFACT_PREFIX-windows-x64.zip"
 
       - name: Build and package macOS
         if: matrix.target == 'macos'
@@ -120,7 +131,7 @@ jobs:
       - name: Upload application
         uses: actions/upload-artifact@v4
         with:
-          name: Deshplayer-${{ matrix.target }}
+          name: ${{ env.ARTIFACT_PREFIX }}-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
           retention-days: 14
@@ -141,7 +152,7 @@ jobs:
       - name: Download all platform builds
         uses: actions/download-artifact@v4
         with:
-          pattern: Deshplayer-*
+          pattern: deshplayer-*
           path: dist
           merge-multiple: true
 

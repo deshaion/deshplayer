@@ -8,7 +8,7 @@ for the initial builds.
 
 Each platform runs independently. Open a completed run and download its
 **Artifacts**; they are retained for 14 days. For a published GitHub release,
-the workflow also attaches all four files to that release after all platform
+the workflow also attaches the packages to that release after all four platform
 builds succeed. It does not upload to app stores.
 
 ## Create a release with downloadable builds
@@ -21,8 +21,8 @@ builds succeed. It does not upload to app stores.
 4. Click **Publish release**. Publishing a prerelease works too. Saving only a
    draft does not start the build.
 5. Open **Actions → Build applications** to watch progress. When all four
-   builds succeed, **Attach builds to release** uploads the AppImage, APK, and
-   Windows/macOS ZIP files to the release's **Assets** section.
+   builds succeed, **Attach builds to release** uploads the AppImage, APK,
+   Windows ZIP, and macOS DMG and ZIP to the release's **Assets** section.
 
 You do not need to run the workflow manually for this path. The release is
 visible while its builds run, and the files appear afterward. If a build fails,
@@ -38,23 +38,26 @@ existing release published before this workflow was installed, you can download
 the Actions artifacts and attach their contained files in **Edit release**, or
 create a new release using the steps above.
 
+Artifact and package names include the app version from `pubspec.yaml`.
+For example, version `1.1.11` produces the following files.
+
 | Artifact | Contents |
 | --- | --- |
-| `Deshplayer-linux` | `Deshplayer-x86_64.AppImage` |
-| `Deshplayer-windows` | ZIP with the x64 executable, DLLs, and assets |
-| `Deshplayer-android` | Universal release APK |
-| `Deshplayer-macos` | ZIP containing the app, labelled with its architecture and signing mode |
+| `deshplayer-1.1.11-linux` | `deshplayer-1.1.11-x86_64.AppImage` |
+| `deshplayer-1.1.11-windows` | `deshplayer-1.1.11-windows-x64.zip` with the executable, DLLs, and assets |
+| `deshplayer-1.1.11-android` | `deshplayer-1.1.11-android.apk` (universal release APK) |
+| `deshplayer-1.1.11-macos` | DMG and ZIP with the app, labelled with the executable architectures and signing mode |
 
 Extract the entire Windows ZIP before launching the executable. For Linux,
-make the downloaded AppImage executable (`chmod +x Deshplayer-x86_64.AppImage`).
+make the downloaded AppImage executable (`chmod +x deshplayer-1.1.11-x86_64.AppImage`).
 The Linux build uses Ubuntu 24.04 as its baseline and `NO_XIPH_LIBS=1`, with the
 codec limitations described in the main README. It still needs a working
 desktop session and Secret Service provider such as GNOME Keyring for cloud
 credential storage. An AppImage does not supply the user's keyring service.
 
-The macOS job uses the architecture of the `macos-15` runner (currently Apple
-Silicon). It does not produce an Intel or universal build. The project currently
-requires macOS 14.5 or later.
+The macOS job runs on the Apple Silicon `macos-15` runner. The app requires
+macOS 14.5 or later. For DMG installation and first-launch instructions, see
+[Install from the DMG](../README.md#install-from-the-dmg).
 
 Flutter is pinned in `.github/workflows/build.yml`. Commit `pubspec.lock` with
 the workflow: CI uses `flutter pub get --enforce-lockfile`. Native build output

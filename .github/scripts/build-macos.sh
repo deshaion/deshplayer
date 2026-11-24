@@ -2,6 +2,7 @@
 set -euo pipefail
 
 : "${RUNNER_TEMP:?This script runs on a macOS GitHub Actions runner}"
+: "${ARTIFACT_PREFIX:?Set ARTIFACT_PREFIX to the versioned artifact prefix}"
 signing_dir="$(mktemp -d "$RUNNER_TEMP/deshplayer-signing.XXXXXX")"
 keychain="$signing_dir/signing.keychain-db"
 cleanup() {
@@ -29,7 +30,7 @@ mkdir -p dist
 
 if [[ -z "${MACOS_CERTIFICATE_BASE64:-}${MACOS_CERTIFICATE_PASSWORD:-}${MACOS_PROFILE_BASE64:-}${MACOS_SIGNING_IDENTITY:-}" ]]; then
   codesign --force --deep --sign - --entitlements macos/Runner/Release.entitlements "$app"
-  archive="Deshplayer-macos-$(uname -m)-adhoc.zip"
+  signing_mode=adhoc
   echo 'macOS: ad-hoc build; cloud credential storage through Keychain is unavailable. Configure the four MACOS signing secrets for Keychain support.' >> "$GITHUB_STEP_SUMMARY"
 else
   : "${MACOS_CERTIFICATE_BASE64:?Set all four MACOS signing secrets}"
@@ -96,8 +97,17 @@ PY
   done < <(find "$app/Contents" -depth -type d -name '*.framework' -print0)
   codesign --force --timestamp --options runtime --keychain "$keychain" \
     --sign "$MACOS_SIGNING_IDENTITY" --entitlements "$signing_dir/app.entitlements" "$app"
-  archive="Deshplayer-macos-$(uname -m)-signed.zip"
+  signing_mode=signed
   echo 'macOS: certificate-signed with a provisioned Keychain group; not notarized.' >> "$GITHUB_STEP_SUMMARY"
 fi
 codesign --verify --deep --strict "$app"
-ditto -c -k --sequesterRsrc --keepParent "$app" "dist/$archive"
+architectures=$(lipo -archs "$app/Contents/MacOS/deshplayer")
+artifact="$ARTIFACT_PREFIX-macos-${architectures// /-}-$signing_mode"
+ditto -c -k --sequesterRsrc --keepParent "$app" "dist/$artifact.zip"
+
+dmg_dir="$signing_dir/dmg"
+mkdir "$dmg_dir"
+ditto "$app" "$dmg_dir/Deshplayer.app"
+ln -s /Applications "$dmg_dir/Applications"
+hdiutil create -ov -volname Deshplayer -srcfolder "$dmg_dir" -format UDZO "dist/$artifact.dmg"
+hdiutil verify "dist/$artifact.dmg"

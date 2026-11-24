@@ -33,7 +33,7 @@ When playing a Book Mode playlist:
 ## How to build it
 
 GitHub Actions can build Linux AppImage, Windows, Android APK, and macOS
-artifacts. See [CI builds and optional signing setup](docs/ci-builds.md) for
+DMG and ZIP files. See [CI builds and optional signing setup](docs/ci-builds.md) for
 running the workflow and configuring Android or macOS signing.
 
 Before building for any platform, ensure you have Flutter installed and run `flutter doctor` to verify your environment is set up correctly.
@@ -133,6 +133,18 @@ select **Retry**. A normal reboot also restarts the daemon. Do not delete
 other applications.
 
 ### macOS
+
+#### Install from the DMG
+
+1. Download and open the macOS `.dmg` from the GitHub release.
+2. Drag **Deshplayer** into **Applications**, eject the disk image, and open
+   **Deshplayer** from **Applications**.
+3. If macOS blocks the first launch, go to **System Settings → Privacy &
+   Security**, scroll to **Security**, and click **Open Anyway**. Confirm the
+   prompt and authenticate if asked. The button appears after you try to open
+   the app. [Apple’s instructions](https://support.apple.com/en-us/102445)
+
+#### Build from source
 
 The macOS build uses CocoaPods and CMake to compile the native
 `flutter_soloud` audio library. Install CMake before building. With Homebrew:
