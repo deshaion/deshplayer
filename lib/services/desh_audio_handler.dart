@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:audio_service/audio_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:logging/logging.dart';
@@ -18,6 +19,8 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   bool _isDisposed = false;
   bool _isCurrentFileDownloaded = false;
   bool _resumeAfterInterruption = false;
+  late final Future<AudioSession> _audioSession;
+  Object? _pendingBluetoothResume;
 
   Duration? _lastCompletionPosition;
   int _unchangedCompletionTicks = 0;
@@ -30,13 +33,18 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   static const _completionOverrunGrace = Duration(seconds: 1);
   static const _minimumCompletionEndTolerance = Duration(seconds: 2);
   static const _maximumCompletionEndTolerance = Duration(seconds: 10);
+  static const _bluetoothDisconnectGracePeriod = Duration(seconds: 1);
 
-  DeshAudioHandler({this.onSkipToPrevious, this.onSkipToNext}) {
-    _initAudioSession();
+  DeshAudioHandler({
+    this.onSkipToPrevious,
+    this.onSkipToNext,
+    AudioSession? audioSession,
+  }) {
+    _audioSession = _initAudioSession(audioSession);
   }
 
-  Future<void> _initAudioSession() async {
-    final session = await AudioSession.instance;
+  Future<AudioSession> _initAudioSession(AudioSession? audioSession) async {
+    final session = audioSession ?? await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
 
     session.interruptionEventStream.listen((event) async {
@@ -83,8 +91,14 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       await pause();
     });
 
-    if (Platform.isAndroid) {
+    if (defaultTargetPlatform == TargetPlatform.android) {
       session.devicesChangedEventStream.listen((event) {
+        if (_pendingBluetoothResume != null &&
+            event.devicesRemoved.any(_isBluetoothOutput)) {
+          _pendingBluetoothResume = null;
+          _log.info('Media button resume canceled by Bluetooth disconnect');
+        }
+
         final removedOutputs = event.devicesRemoved
             .where((device) => device.isOutput)
             .map((device) => device.type.name)
@@ -92,12 +106,11 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         if (removedOutputs.isEmpty) return;
 
         final handle = _currentSoundHandle;
-        final engine = SoLoud.instance;
         final voicePaused =
             handle != null &&
-                engine.isInitialized &&
-                engine.getIsValidVoiceHandle(handle)
-            ? engine.getPause(handle)
+                SoLoud.instance.isInitialized &&
+                SoLoud.instance.getIsValidVoiceHandle(handle)
+            ? SoLoud.instance.getPause(handle)
             : null;
         _log.info(
           'Android audio outputs removed: ${removedOutputs.join(', ')}, '
@@ -106,7 +119,20 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         );
       });
     }
+    return session;
   }
+
+  bool _isBluetoothOutput(AudioDevice device) =>
+      device.isOutput &&
+      switch (device.type) {
+        // ignore: experimental_member_use
+        AudioDeviceType.bluetoothA2dp ||
+        // ignore: experimental_member_use
+        AudioDeviceType.bluetoothSco ||
+        // ignore: experimental_member_use
+        AudioDeviceType.bluetoothLe => true,
+        _ => false,
+      };
 
   Future<void> playTrack(
     Track track, {
@@ -434,6 +460,7 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   }
 
   Future<void> _stopCurrentPlayback() async {
+    _pendingBluetoothResume = null;
     _resumeAfterInterruption = false;
     _isDisposed = true;
     _completionTimer?.cancel();
@@ -477,14 +504,35 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   }
 
   @override
-  Future<void> click([MediaButton button = MediaButton.media]) {
-    _log.info(
-      'Media button: button=${button.name}, playing=${playbackState.value.playing}',
-    );
-    return super.click(button);
+  Future<void> click([MediaButton button = MediaButton.media]) async {
+    final playing = playbackState.value.playing;
+    _log.info('Media button: button=${button.name}, playing=$playing');
+    if (defaultTargetPlatform != TargetPlatform.android ||
+        button != MediaButton.media ||
+        playing) {
+      return super.click(button);
+    }
+
+    if (_pendingBluetoothResume != null) return;
+    final request = Object();
+    _pendingBluetoothResume = request;
+    try {
+      // A headset can send a play/pause button event before Android reports
+      // that its Bluetooth output disconnected.
+      final session = await _audioSession;
+      final outputs = await session.getDevices(includeInputs: false);
+      if (_pendingBluetoothResume != request) return;
+      if (outputs.any(_isBluetoothOutput)) {
+        await Future<void>.delayed(_bluetoothDisconnectGracePeriod);
+      }
+      if (_pendingBluetoothResume == request) await play();
+    } finally {
+      if (_pendingBluetoothResume == request) _pendingBluetoothResume = null;
+    }
   }
 
   void _setPaused(bool paused) {
+    _pendingBluetoothResume = null;
     if (_isDisposed) return;
     final handle = _currentSoundHandle;
     if (handle != null && SoLoud.instance.getIsValidVoiceHandle(handle)) {
@@ -495,11 +543,13 @@ class DeshAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
 
   @override
   Future<void> skipToPrevious() async {
+    _pendingBluetoothResume = null;
     await onSkipToPrevious?.call();
   }
 
   @override
   Future<void> skipToNext() async {
+    _pendingBluetoothResume = null;
     await onSkipToNext?.call();
   }
 
